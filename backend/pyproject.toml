@@ -1,0 +1,41 @@
+[project]
+name = "ai-audit-compliance-backend"
+version = "0.1.0"
+description = "FastAPI backend for AI-driven audit and compliance validation with evidence tracing."
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "pydantic-settings",
+  "sqlalchemy",
+  "psycopg[binary]",
+  "alembic",
+  "passlib[bcrypt]",
+  "python-jose[cryptography]",
+  "python-multipart",
+  "email-validator",
+  "boto3",
+  "qdrant-client",
+  "openai",
+  "json-repair",
+  "langgraph",
+  "langchain-text-splitters",
+  "rank-bm25",
+  "pymupdf",
+  "pdfplumber",
+  "pypdf",
+  "python-docx",
+  "sentence-transformers",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+  "ruff",
+  "mypy",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
