@@ -3,8 +3,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ListChecks, Plus } from "lucide-react";
 import { useState } from "react";
+import { EmptyState } from "@/components/dashboard/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -49,11 +51,12 @@ export default function AdminComplianceRulesPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold">Compliance Rules</h1>
-        <p className="mt-1 text-sm text-muted">Create categories and manage rule records extracted from official documents.</p>
-      </div>
-      <section className="grid gap-5 xl:grid-cols-[420px_1fr]">
+      <PageHeader
+        eyebrow="Rule Management"
+        title="Rule Library"
+        description="Build manual rules, organize categories, and manage the searchable rule library used by audit runs."
+      />
+      <section className="grid gap-5 xl:grid-cols-[430px_1fr]">
         <div className="space-y-5">
           <Card>
             <CardHeader>
@@ -75,7 +78,7 @@ export default function AdminComplianceRulesPage() {
               <select
                 value={category}
                 onChange={(event) => setCategory(event.target.value)}
-                className="h-11 w-full rounded-lg border border-line bg-[#111827] px-3 text-sm outline-none focus:border-cyan/70"
+                className="h-11 w-full rounded-lg border border-line bg-elevated px-3 text-sm outline-none focus:border-info/70"
               >
                 {(categoriesQuery.data ?? [{ id: null, name: "Internal Policies", description: null }]).map((item) => (
                   <option key={item.id ?? item.name} value={item.name}>{item.name}</option>
@@ -102,8 +105,11 @@ export default function AdminComplianceRulesPage() {
           <CardContent className="space-y-3">
             {rulesQuery.isLoading && <Skeleton className="h-32 w-full" />}
             {rulesQuery.error && <p className="text-sm text-riskHigh">{getErrorMessage(rulesQuery.error)}</p>}
+            {!rulesQuery.isLoading && rulesQuery.data?.length === 0 && (
+              <EmptyState icon={ListChecks} title="No rule documents uploaded" copy="Upload rule documents or create a manual rule to populate the library." />
+            )}
             {rulesQuery.data?.map((rule) => (
-              <article key={rule.id} className="rounded-lg border border-line bg-white/5 p-4">
+              <article key={rule.id} className="rounded-lg border border-line bg-elevated p-4">
                 <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <div className="text-sm font-semibold">{rule.title}</div>

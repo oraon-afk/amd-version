@@ -3,14 +3,14 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 rounded-lg text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet/70 disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center gap-2 rounded-lg text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info/70 disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
-        default: "bg-gradient-to-r from-violet to-brand text-white shadow-glow hover:translate-y-[-1px]",
-        secondary: "border border-line bg-white/7 text-foreground hover:bg-white/12",
-        ghost: "text-muted hover:bg-white/8 hover:text-foreground",
-        destructive: "bg-riskHigh/20 text-riskHigh hover:bg-riskHigh/25",
+        default: "bg-primary text-white shadow-glow hover:bg-blue-500",
+        secondary: "border border-line bg-elevated text-foreground hover:border-info/40 hover:bg-slate/40",
+        ghost: "text-muted hover:bg-elevated hover:text-foreground",
+        destructive: "border border-riskHigh/30 bg-riskHigh/15 text-red-200 hover:bg-riskHigh/24",
       },
       size: {
         sm: "h-9 px-3",
@@ -36,4 +36,3 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 );
 
 Button.displayName = "Button";
-

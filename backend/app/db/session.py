@@ -112,6 +112,9 @@ def _ensure_incremental_columns() -> None:
             "summary": "TEXT",
             "created_at": "TIMESTAMP",
         },
+        "batch_documents": {
+            "domain": "VARCHAR(100)",
+        },
     }
     with engine.begin() as connection:
         inspector = inspect(connection)

@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Database, HardDrive, ScrollText, ServerCog, type LucideIcon } from "lucide-react";
+import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getAuditLogs, getQdrantMonitoring, getStorageMonitoring } from "@/services/admin/admin-service";
@@ -33,9 +34,13 @@ export default function AdminSettingsPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="mt-1 text-sm text-muted">Backend configuration, system logs, and infrastructure status.</p>
+      <PageHeader eyebrow="Administration" title="Settings" description="Backend configuration, security posture, system logs, and infrastructure status." />
+      <div className="flex gap-2 overflow-x-auto border-b border-line pb-3 text-sm">
+        {["Profile", "Security", "Notifications", "Integrations", "Preferences"].map((tab, index) => (
+          <span key={tab} className={`shrink-0 rounded-lg border px-3 py-2 ${index === 3 ? "border-info/40 bg-primary/20 text-foreground" : "border-line bg-elevated text-muted"}`}>
+            {tab}
+          </span>
+        ))}
       </div>
       {(configQuery.error || storageQuery.error || qdrantQuery.error || logsQuery.error) && (
         <p className="rounded-lg border border-riskHigh/30 bg-riskHigh/10 p-3 text-sm text-riskHigh">
@@ -100,7 +105,7 @@ export default function AdminSettingsPage() {
         <CardContent className="space-y-3">
           {logsQuery.isLoading && <Skeleton className="h-32 w-full" />}
           {logsQuery.data?.map((log) => (
-            <div key={log.id} className="rounded-lg border border-line bg-white/5 p-3 text-sm">
+            <div key={log.id} className="rounded-lg border border-line bg-elevated p-3 text-sm">
               <div className="font-semibold">{log.action}</div>
               <div className="mt-1 text-xs text-muted">{log.entity_type ?? "system"} - {formatDate(log.created_at)}</div>
             </div>
@@ -113,8 +118,8 @@ export default function AdminSettingsPage() {
 
 function Info({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-line bg-white/5 p-3">
-      <Icon className="h-4 w-4 text-cyan" />
+    <div className="flex items-center gap-3 rounded-lg border border-line bg-elevated p-3">
+      <Icon className="h-4 w-4 text-info" />
       <div className="min-w-0">
         <div className="text-xs uppercase text-muted">{label}</div>
         <div className="truncate">{value}</div>

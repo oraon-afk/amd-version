@@ -3,8 +3,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, Trash2, UploadCloud } from "lucide-react";
 import { useState } from "react";
+import { EmptyState } from "@/components/dashboard/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -55,10 +57,11 @@ export default function AdminRuleDocumentsPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold">Rule Documents</h1>
-        <p className="mt-1 text-sm text-muted">Upload official rule files to permanent storage and Qdrant.</p>
-      </div>
+      <PageHeader
+        eyebrow="Rule Management"
+        title="Upload Rule"
+        description="Upload one permanent compliance framework document into compliance_rules. No audit, findings, reports, or compliance score are generated here."
+      />
       <section className="grid gap-5 xl:grid-cols-[420px_1fr]">
         <Card>
           <CardHeader>
@@ -70,10 +73,10 @@ export default function AdminRuleDocumentsPage() {
               <select
                 value={category}
                 onChange={(event) => setCategory(event.target.value)}
-                className="mt-2 h-11 w-full rounded-lg border border-line bg-[#111827] px-3 text-sm outline-none focus:border-cyan/70"
+                className="mt-2 h-11 w-full rounded-lg border border-line bg-elevated px-3 text-sm outline-none focus:border-info/70"
               >
                 {(categoriesQuery.data ?? [{ id: null, name: "Internal Policies", description: null }]).map((item) => (
-                  <option key={item.id ?? item.name} value={item.name} className="bg-navy">
+                  <option key={item.id ?? item.name} value={item.name}>
                     {item.name}
                   </option>
                 ))}
@@ -89,7 +92,7 @@ export default function AdminRuleDocumentsPage() {
                 <select
                   value={documentType}
                   onChange={(event) => setDocumentType(event.target.value)}
-                  className="mt-2 h-11 w-full rounded-lg border border-line bg-[#111827] px-3 text-sm outline-none focus:border-cyan/70"
+                  className="mt-2 h-11 w-full rounded-lg border border-line bg-elevated px-3 text-sm outline-none focus:border-info/70"
                 >
                   <option value="rules">Rules</option>
                   <option value="compliance">Compliance</option>
@@ -101,8 +104,8 @@ export default function AdminRuleDocumentsPage() {
                 <Input className="mt-2" value={version} onChange={(event) => setVersion(event.target.value)} />
               </label>
             </div>
-            <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-cyan/40 bg-white/5 p-5 text-center">
-              <UploadCloud className="mb-3 h-9 w-9 text-cyan" />
+            <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-info/45 bg-elevated p-6 text-center transition hover:border-info/70">
+              <UploadCloud className="mb-3 h-9 w-9 text-info" />
               <div className="text-sm font-semibold">{file ? file.name : "Choose PDF, DOCX, or TXT"}</div>
               <input
                 type="file"
@@ -119,14 +122,17 @@ export default function AdminRuleDocumentsPage() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Permanent Rule Documents</CardTitle>
+            <CardTitle>Recent Rule Uploads</CardTitle>
             <FileText className="h-5 w-5 text-cyan" />
           </CardHeader>
           <CardContent className="space-y-3">
             {documentsQuery.isLoading && <Skeleton className="h-32 w-full" />}
             {documentsQuery.error && <p className="text-sm text-riskHigh">{getErrorMessage(documentsQuery.error)}</p>}
+            {!documentsQuery.isLoading && documentsQuery.data?.rule_documents.length === 0 && (
+              <EmptyState icon={FileText} title="No rule documents uploaded" copy="Upload a rule document to populate the permanent rule library." />
+            )}
             {documentsQuery.data?.rule_documents.map((document) => (
-              <div key={document.id} className="rounded-lg border border-line bg-white/5 p-4">
+              <div key={document.id} className="rounded-lg border border-line bg-elevated p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold">{document.filename}</div>
@@ -147,36 +153,6 @@ export default function AdminRuleDocumentsPage() {
           </CardContent>
         </Card>
       </section>
-      <Card>
-        <CardHeader>
-          <CardTitle>User Uploaded Documents</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {documentsQuery.isLoading && <Skeleton className="h-24 w-full" />}
-          {documentsQuery.data?.uploaded_documents.length === 0 && (
-            <p className="rounded-lg border border-line bg-white/5 p-4 text-sm text-muted">No user uploads found.</p>
-          )}
-          {documentsQuery.data?.uploaded_documents.map((document) => (
-            <div key={document.id} className="rounded-lg border border-line bg-white/5 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold">{document.title}</div>
-                  <div className="mt-1 text-xs text-muted">
-                    {document.domain} - {document.filename} - {formatDate(document.created_at)}
-                  </div>
-                  <div className="mt-2 text-xs text-muted">{document.storage_path}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge>{document.upload_status}</Badge>
-                  <Button size="icon" variant="destructive" onClick={() => deleteMutation.mutate(document.id)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
     </div>
   );
 }

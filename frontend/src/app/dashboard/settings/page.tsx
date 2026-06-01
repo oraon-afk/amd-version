@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Building2, Database, LogOut, Mail, ServerCog, ShieldCheck, UserRound, type LucideIcon } from "lucide-react";
+import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -36,9 +37,13 @@ export default function DashboardSettingsPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="mt-1 text-sm text-muted">Account context and live backend configuration.</p>
+      <PageHeader eyebrow="Administration" title="Settings" description="Account context, security posture, preferences, and live backend configuration." />
+      <div className="flex gap-2 overflow-x-auto border-b border-line pb-3 text-sm">
+        {["Profile", "Security", "Notifications", "Integrations", "Preferences"].map((tab, index) => (
+          <span key={tab} className={`shrink-0 rounded-lg border px-3 py-2 ${index === 0 ? "border-info/40 bg-primary/20 text-foreground" : "border-line bg-elevated text-muted"}`}>
+            {tab}
+          </span>
+        ))}
       </div>
       <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
         <Card>
@@ -47,7 +52,7 @@ export default function DashboardSettingsPage() {
           </CardHeader>
           <CardContent>
             <div className="mb-5 flex items-center gap-4">
-              <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-gradient-to-br from-violet to-cyan text-2xl font-bold shadow-glow">
+              <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-primary text-2xl font-bold shadow-glow">
                 {(user?.full_name ?? user?.email ?? "A").slice(0, 1).toUpperCase()}
               </div>
               <div className="min-w-0">
@@ -93,8 +98,8 @@ export default function DashboardSettingsPage() {
 
 function Info({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-line bg-white/5 p-3">
-      <Icon className="h-4 w-4 text-cyan" />
+    <div className="flex items-center gap-3 rounded-lg border border-line bg-elevated p-3">
+      <Icon className="h-4 w-4 text-info" />
       <div>
         <div className="text-xs uppercase text-muted">{label}</div>
         <div>{value}</div>

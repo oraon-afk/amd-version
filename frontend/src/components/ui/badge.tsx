@@ -7,7 +7,8 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: "border-violet/35 bg-violet/15 text-violet",
+        default: "border-primary/35 bg-primary/15 text-info",
+        critical: "border-red-500/40 bg-red-500/15 text-red-300",
         high: "border-riskHigh/35 bg-riskHigh/15 text-riskHigh",
         medium: "border-riskMedium/35 bg-riskMedium/15 text-riskMedium",
         low: "border-riskLow/35 bg-riskLow/15 text-riskLow",
@@ -28,9 +29,9 @@ export function Badge({ className, variant, ...props }: BadgeProps) {
 }
 
 export function riskVariant(risk?: string | null): BadgeProps["variant"] {
+  if (risk === "CRITICAL") return "critical";
   if (risk === "HIGH") return "high";
   if (risk === "MEDIUM") return "medium";
   if (risk === "LOW") return "low";
   return "muted";
 }
-

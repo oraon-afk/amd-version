@@ -1,7 +1,8 @@
 from datetime import datetime
+import math
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
 
 class CreateAuditRequest(BaseModel):
@@ -67,4 +68,94 @@ class ReportResponse(BaseModel):
     report_json_s3_uri: str | None
     created_at: datetime
 
+    @computed_field
+    @property
+    def compliance_score(self) -> float | None:
+        return _read_number(
+            self.report_payload,
+            "compliance_score",
+            "complianceScore",
+            "overall_score",
+            "overallScore",
+            "score",
+            "risk_score",
+        )
+
+    @computed_field
+    @property
+    def findings(self) -> list[dict[str, Any]]:
+        findings = self.report_payload.get("findings")
+        return findings if isinstance(findings, list) else []
+
+    @computed_field
+    @property
+    def findings_count(self) -> int:
+        count = _read_number(
+            self.report_payload,
+            "finding_count",
+            "findings_count",
+            "total_violations",
+            "failed_rules",
+        )
+        if count is not None:
+            return max(int(count), len(self.findings))
+        return len(self.findings)
+
+    @computed_field
+    @property
+    def risk_level(self) -> str | None:
+        explicit = self.report_payload.get("risk_level") or self.report_payload.get("riskLevel")
+        if explicit:
+            return str(explicit).upper()
+
+        risk_counts = self.report_payload.get("risk_counts")
+        if not isinstance(risk_counts, dict):
+            return None
+        if _read_number(risk_counts, "CRITICAL", "critical"):
+            return "CRITICAL"
+        if _read_number(risk_counts, "HIGH", "high"):
+            return "HIGH"
+        if _read_number(risk_counts, "MEDIUM", "medium"):
+            return "MEDIUM"
+        if _read_number(risk_counts, "LOW", "low"):
+            return "LOW"
+        return None
+
+    @computed_field
+    @property
+    def status(self) -> str | None:
+        status = self.report_payload.get("status")
+        return str(status) if status is not None else None
+
+    @computed_field
+    @property
+    def compliance_status(self) -> str | None:
+        explicit = self.report_payload.get("compliance_status") or self.report_payload.get("complianceStatus")
+        if explicit:
+            return str(explicit)
+        if self.findings_count > 0:
+            return "Review required"
+        score = self.compliance_score
+        if score is None:
+            return None
+        normalized = score if score <= 1 else score / 100
+        return "Compliant" if normalized >= 0.8 else "Review required"
+
     model_config = {"from_attributes": True}
+
+
+def _read_number(payload: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)) and math.isfinite(float(value)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                number = float(value.strip().removesuffix("%"))
+            except ValueError:
+                continue
+            if math.isfinite(number):
+                return number / 100 if value.strip().endswith("%") else number
+    return None

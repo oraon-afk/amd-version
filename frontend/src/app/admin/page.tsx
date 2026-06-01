@@ -1,7 +1,8 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Activity, FileText, ShieldAlert, Users, type LucideIcon } from "lucide-react";
+import { Activity, Database, FileText, ShieldAlert, Users, type LucideIcon } from "lucide-react";
+import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getAdminAnalytics, getAuditLogs, getQdrantMonitoring } from "@/services/admin/admin-service";
@@ -16,10 +17,11 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Admin Dashboard</h1>
-        <p className="mt-1 text-sm text-muted">System overview, audit activity, storage, and vector collection health.</p>
-      </div>
+      <PageHeader
+        eyebrow="Administration"
+        title="Admin Dashboard"
+        description="System health, audit activity, storage, and vector collection monitoring for the compliance workspace."
+      />
 
       {(analyticsQuery.error || qdrantQuery.error || logsQuery.error) && (
         <p className="rounded-lg border border-riskHigh/30 bg-riskHigh/10 p-3 text-sm text-riskHigh">
@@ -40,18 +42,20 @@ export default function AdminDashboardPage() {
       <section className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
         <Card>
           <CardHeader>
-            <CardTitle>Qdrant Collection Monitoring</CardTitle>
+            <CardTitle>Vector Storage Health</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {qdrantQuery.isLoading && <Skeleton className="h-24 w-full" />}
             {qdrantQuery.data && (
               <>
-                <div className="rounded-lg border border-line bg-white/5 p-3 text-sm">
-                  Status: <span className="font-semibold">{qdrantQuery.data.status}</span>
+                <div className="rounded-lg border border-line bg-elevated p-4 text-sm">
+                  <div className="flex items-center gap-2 font-semibold">
+                    <Database className="h-4 w-4 text-info" /> Qdrant status: {qdrantQuery.data.status}
+                  </div>
                   {qdrantQuery.data.error && <span className="ml-2 text-riskHigh">{qdrantQuery.data.error}</span>}
                 </div>
                 {qdrantQuery.data.collections.map((collection) => (
-                  <div key={collection.name} className="rounded-lg border border-line bg-white/5 p-3 text-sm">
+                  <div key={collection.name} className="rounded-lg border border-line bg-elevated p-4 text-sm">
                     <div className="font-semibold">{collection.name}</div>
                     <div className="mt-1 text-muted">
                       Points: {collection.points_count ?? "-"} | Vectors: {collection.vectors_count ?? "-"}
@@ -70,7 +74,7 @@ export default function AdminDashboardPage() {
           <CardContent className="space-y-3">
             {logsQuery.isLoading && <Skeleton className="h-24 w-full" />}
             {logsQuery.data?.slice(0, 8).map((log) => (
-              <div key={log.id} className="rounded-lg border border-line bg-white/5 p-3 text-sm">
+              <div key={log.id} className="rounded-lg border border-line bg-elevated p-4 text-sm">
                 <div className="font-semibold">{log.action}</div>
                 <div className="mt-1 text-xs text-muted">{log.entity_type ?? "system"} - {formatDate(log.created_at)}</div>
               </div>

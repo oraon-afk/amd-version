@@ -1,12 +1,15 @@
 "use client";
 
 import {
+  ClipboardList,
   FolderUp,
   LayoutDashboard,
+  ListChecks,
   LogOut,
   ScrollText,
   Settings,
   ShieldCheck,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -16,31 +19,65 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/providers/auth-provider";
 
+const workspaceSections = [
+  {
+    label: "Dashboard",
+    links: [{ href: "/dashboard", label: "Dashboard", icon: LayoutDashboard }],
+  },
+  {
+    label: "Compliance Check",
+    links: [
+      { href: "/dashboard/upload", label: "Upload Document", icon: FolderUp },
+      { href: "/dashboard/bulk-upload", label: "Bulk Upload", icon: FolderUp },
+      { href: "/dashboard/audits", label: "Audit History", icon: ClipboardList },
+      { href: "/dashboard/violations", label: "Findings", icon: ListChecks },
+      { href: "/dashboard/evidence", label: "Evidence", icon: ShieldCheck },
+      { href: "/dashboard/reports", label: "Reports", icon: ScrollText },
+    ],
+  },
+  {
+    label: "Administration",
+    links: [{ href: "/dashboard/settings", label: "Settings", icon: Settings }],
+  },
+];
+
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
 
   return (
     <div className="min-h-screen bg-background bg-app-radial text-foreground">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-line bg-panel/80 p-4 backdrop-blur-2xl lg:block">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-line bg-panel/95 p-4 backdrop-blur-xl lg:block">
         <div className="mb-7 flex items-center gap-3 px-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet to-cyan shadow-glow">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary shadow-glow">
             <ShieldCheck className="h-5 w-5 text-white" />
           </div>
           <div>
-            <div className="text-sm font-semibold">Audit AI</div>
-            <div className="text-xs text-muted">Compliance Workspace</div>
+            <div className="text-sm font-semibold">Policy Complice AI</div>
+            <div className="text-xs text-muted">Compliance Intelligence</div>
           </div>
         </div>
-        <nav className="space-y-1 text-sm">
-          <NavLink href="/dashboard" label="Dashboard" icon={LayoutDashboard} active={pathname === "/dashboard"} />
-          <NavLink href="/dashboard/upload" label="Upload Documents" icon={FolderUp} active={pathname === "/dashboard/upload"} />
-          <NavLink href="/dashboard/reports" label="Audit Reports" icon={ScrollText} active={pathname.startsWith("/dashboard/reports")} />
-          <NavLink href="/dashboard/settings" label="Settings" icon={Settings} active={pathname === "/dashboard/settings"} />
+        <nav className="space-y-5 text-sm" aria-label="Workspace navigation">
+          {workspaceSections.map((section) => (
+            <div key={section.label}>
+              <div className="mb-2 px-3 text-[11px] font-semibold uppercase text-muted">{section.label}</div>
+              <div className="space-y-1">
+                {section.links.map((item) => (
+                  <NavLink
+                    key={item.href}
+                    href={item.href}
+                    label={item.label}
+                    icon={item.icon}
+                    active={item.href === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(item.href)}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
         </nav>
-        <div className="absolute bottom-4 left-4 right-4 rounded-xl border border-line bg-white/5 p-3">
+        <div className="absolute bottom-4 left-4 right-4 rounded-lg border border-line bg-elevated p-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-violet to-cyan text-sm font-bold">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-navy text-sm font-bold text-info">
               {(user?.full_name ?? user?.email ?? "U").slice(0, 1).toUpperCase()}
             </div>
             <div className="min-w-0">
@@ -51,10 +88,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
       <div className="lg:pl-72">
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-line bg-background/72 px-4 backdrop-blur-2xl md:px-6">
+        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-line bg-background/86 px-4 backdrop-blur-xl md:px-6">
           <div>
-            <div className="text-xs uppercase tracking-[0.18em] text-muted">Enterprise Compliance Workspace</div>
-            <div className="text-sm font-semibold md:text-base">AI Audit & Evidence Tracing</div>
+            <div className="text-xs uppercase text-muted">Enterprise Compliance Workspace</div>
+            <div className="flex items-center gap-2 text-sm font-semibold md:text-base">
+              <Sparkles className="h-4 w-4 text-info" /> Policy Review & Evidence Tracing
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <Button onClick={logout} variant="secondary" size="sm">
@@ -62,7 +101,23 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Button>
           </div>
         </header>
-        <main className="p-4 md:p-6">{children}</main>
+        <div className="border-b border-line bg-panel/80 p-2 lg:hidden">
+          <div className="flex gap-2 overflow-x-auto">
+            {workspaceSections.flatMap((section) => section.links).map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "shrink-0 rounded-lg border border-line bg-elevated px-3 py-2 text-xs text-muted",
+                  (item.href === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(item.href)) && "border-info/40 bg-primary/20 text-foreground",
+                )}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+        <main className="p-4 md:p-6 xl:p-8">{children}</main>
       </div>
     </div>
   );
@@ -82,8 +137,8 @@ function NavLink({
   return (
     <Link
       className={cn(
-        "flex items-center gap-3 rounded-lg px-3 py-2.5 text-muted transition hover:bg-white/8 hover:text-foreground",
-        active && "bg-violet/18 text-foreground shadow-[inset_0_0_0_1px_rgba(168,85,247,0.28)]",
+        "flex items-center gap-3 rounded-lg px-3 py-2.5 text-muted transition hover:bg-elevated hover:text-foreground",
+        active && "bg-primary/18 text-foreground shadow-[inset_3px_0_0_0_#60a5fa]",
       )}
       href={href}
     >

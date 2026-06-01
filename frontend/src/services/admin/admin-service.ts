@@ -8,6 +8,7 @@ import {
   AuditReport,
   ComplianceRule,
   QdrantMonitoring,
+  RuleUploadBatch,
   RuleCategory,
   StorageMonitoring,
   User,
@@ -20,6 +21,12 @@ export type RuleUploadPayload = {
   jurisdiction?: string;
   documentType: string;
   version: string;
+};
+
+export type BulkRuleUploadPayload = Omit<RuleUploadPayload, "file"> & {
+  files: File[];
+  categories?: string[];
+  domains?: string[];
 };
 
 export type AdminDocumentUploadPayload = {
@@ -60,6 +67,25 @@ export async function uploadRuleDocument(payload: RuleUploadPayload) {
   return data;
 }
 
+export async function bulkUploadRuleDocuments(payload: BulkRuleUploadPayload) {
+  const formData = new FormData();
+  payload.files.forEach((file) => formData.append("files", file));
+  formData.append("rule_set_id", payload.ruleSetId);
+  formData.append("category", payload.category);
+  payload.categories?.forEach((category) => formData.append("categories", category));
+  payload.domains?.forEach((domain) => formData.append("domains", domain));
+  formData.append("document_type", payload.documentType);
+  formData.append("version", payload.version);
+  if (payload.jurisdiction?.trim()) formData.append("jurisdiction", payload.jurisdiction.trim());
+  const { data } = await apiClient.post<RuleUploadBatch>("/admin/rules/bulk-upload", formData);
+  return data;
+}
+
+export async function getRuleUploadBatch(batchId: string) {
+  const { data } = await apiClient.get<RuleUploadBatch>(`/admin/rule-batches/${batchId}`);
+  return data;
+}
+
 export async function uploadAdminDocument(payload: AdminDocumentUploadPayload) {
   const formData = new FormData();
   formData.append("title", payload.title);
@@ -72,6 +98,11 @@ export async function uploadAdminDocument(payload: AdminDocumentUploadPayload) {
 
 export async function deleteAdminDocument(documentId: string) {
   const { data } = await apiClient.delete<{ status: string; id: string }>(`/admin/document/${documentId}`);
+  return data;
+}
+
+export async function deleteAdminAudit(auditId: string) {
+  const { data } = await apiClient.delete<{ status: string; id: string }>(`/admin/audits/${auditId}`);
   return data;
 }
 

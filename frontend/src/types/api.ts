@@ -36,6 +36,40 @@ export type UploadedDocument = {
   expires_at: string;
 };
 
+export type UploadBatchDocument = {
+  id: string;
+  batch_id: string;
+  document_id: string | null;
+  audit_id: string | null;
+  filename: string;
+  title: string;
+  domain: string | null;
+  queue_position: number;
+  status: string;
+  current_stage: string | null;
+  error_message: string | null;
+  processing_time_seconds: number | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+};
+
+export type UploadBatch = {
+  id: string;
+  user_id: string;
+  module: "compliance_check" | string;
+  status: string;
+  total_documents: number;
+  completed_documents: number;
+  failed_documents: number;
+  running_document: string | null;
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  documents: UploadBatchDocument[];
+};
+
 export type ComplianceDomain = {
   id: string | null;
   name: string;
@@ -61,8 +95,8 @@ export type Finding = {
   document_id: string | null;
   violated_rule: string;
   finding_type: string;
-  severity: "LOW" | "MEDIUM" | "HIGH";
-  risk_level: "LOW" | "MEDIUM" | "HIGH";
+  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | string;
+  risk_level: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | string;
   confidence_score: number;
   confidence: number;
   evidence_text: string | null;
@@ -90,10 +124,31 @@ export type AuditReport = {
   id: string;
   audit_id: string;
   summary: string;
+  compliance_score?: number | string | null;
+  complianceScore?: number | string | null;
+  overall_score?: number | string | null;
+  score?: number | string | null;
+  risk_score?: number | string | null;
+  risk_level?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | string | null;
+  findings_count?: number | null;
+  compliance_status?: string | null;
+  status?: string | null;
+  findings?: ReportFindingPayload[];
   report_payload: {
     risk_counts?: Record<string, number>;
     finding_count?: number;
+    findings_count?: number;
+    total_violations?: number;
     compliance_score?: number;
+    complianceScore?: number;
+    overall_score?: number;
+    score?: number;
+    risk_score?: number;
+    risk_level?: string;
+    compliance_status?: string;
+    complianceStatus?: string;
+    status?: string;
+    findings?: ReportFindingPayload[];
     passed_rules?: number;
     failed_rules?: number;
     recommendations?: string[];
@@ -102,6 +157,33 @@ export type AuditReport = {
   };
   report_json_s3_uri: string | null;
   created_at: string;
+};
+
+export type ReportFindingPayload = {
+  violated_rule?: unknown;
+  rule_violated?: unknown;
+  matched_rule?: unknown;
+  matched_rule_text?: unknown;
+  matched_section?: unknown;
+  matched_uploaded_text?: unknown;
+  evidence?: unknown;
+  evidence_text?: unknown;
+  extracted_text?: unknown;
+  citation?: unknown;
+  citation_source?: unknown;
+  section_title?: unknown;
+  violation_reason?: unknown;
+  explanation?: unknown;
+  impact?: unknown;
+  business_impact?: unknown;
+  risk_impact?: unknown;
+  recommendation?: unknown;
+  severity?: unknown;
+  risk_level?: unknown;
+  confidence_score?: unknown;
+  confidence?: unknown;
+  page_number?: unknown;
+  [key: string]: unknown;
 };
 
 export type AdminDocumentsResponse = {
@@ -130,6 +212,35 @@ export type AdminRuleDocument = {
   status: string;
   indexed_at: string | null;
   created_at: string;
+};
+
+export type RuleUploadBatchItem = {
+  id: string;
+  batch_id: string;
+  rule_document_id: string | null;
+  filename: string;
+  status: string;
+  error_message: string | null;
+  processing_time_seconds: number | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+};
+
+export type RuleUploadBatch = {
+  id: string;
+  user_id: string;
+  module: "rule_management" | string;
+  status: string;
+  total_documents: number;
+  completed_documents: number;
+  failed_documents: number;
+  running_document: string | null;
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  documents: RuleUploadBatchItem[];
 };
 
 export type ComplianceRule = {

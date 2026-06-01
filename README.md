@@ -1,79 +1,72 @@
-# AI-Driven Audit & Compliance Assistant
+# AI Audit & Compliance Assistant
 
-Enterprise MVP architecture for an AI-powered audit and compliance validation platform with evidence tracing.
+AI Audit & Compliance Assistant is a full-stack compliance validation app. It lets users upload PDF, DOCX, or text documents, compare them against compliance rules, trace supporting evidence, score risk, and generate audit reports.
 
-This repository contains a working FastAPI + Next.js implementation for an AI-powered audit and compliance validation platform with evidence tracing, JWT auth, role-based admin controls, local document lifecycle storage, PostgreSQL persistence, Qdrant retrieval, and OpenRouter LLM analysis.
+## Tech Stack
 
-## Goal
+- Backend: FastAPI, SQLAlchemy, Alembic, JWT auth
+- Frontend: Next.js, React, TypeScript, Tailwind CSS
+- AI/RAG: Qdrant, sentence-transformers, BM25, optional reranking, OpenRouter/Groq/Gemini-compatible LLM providers
+- Default local database: SQLite
+- Optional local services: PostgreSQL and Qdrant through Docker Compose
 
-The platform validates uploaded PDF or text documents against compliance rules and regulatory policies. It uses hybrid RAG to retrieve relevant rules, compare them against uploaded documents, detect violations or missing clauses, trace evidence, generate explainable reports, and assign risk/confidence scores.
-
-## Target Stack
-
-- Frontend: Next.js, React, TypeScript, TailwindCSS
-- Backend: Python, FastAPI
-- AI/RAG: sentence-transformers embeddings, hybrid retrieval, reranking
-- Database: PostgreSQL Cloud
-- Vector database: Qdrant Cloud
-- Storage: local `storage/temp`, `storage/rules`, `storage/compliance`, and `storage/policies` directories
-- Authentication: JWT with hashed passwords
-
-## Core Workflow
+## Project Structure
 
 ```text
-Register/Login
-  -> Dashboard
-  -> Upload PDF/Text
-  -> Document Processing
-  -> Hybrid Retrieval
-  -> Compliance Validation
-  -> Evidence Tracing
-  -> Risk Scoring
-  -> Audit Report Generation
-  -> History Storage
+backend/                FastAPI API, auth, services, agents, RAG pipeline, DB models
+backend/alembic/        Database migrations
+frontend/               Next.js app, dashboards, admin screens, upload/report flows
+docs/                   Architecture, API, database, RAG, storage, and workflow docs
+requirements.txt        Backend dependency list
+docker-compose.dev.yml  Optional PostgreSQL and Qdrant local services
 ```
 
-## Repository Map
+## Requirements
 
-```text
-backend/      FastAPI application, agents, RAG pipeline, services, persistence
-frontend/     Next.js application, dashboard, upload flow, evidence UI
-docs/         Architecture, API, storage, RAG, roadmap, naming guidance
-```
+- Python 3.11 or newer
+- Node.js 20 or newer
+- npm
+- Docker Desktop, optional but recommended for PostgreSQL and Qdrant
 
-Start with the docs in this order:
+## Quick Start
 
-1. [Documentation Index](docs/README.md)
-2. [Architecture](docs/architecture.md)
-3. [Directory Structure](docs/directory-structure.md)
-4. [RAG Pipeline](docs/rag-pipeline.md)
-5. [API Structure](docs/api-structure.md)
-6. [Data And Storage](docs/data-and-storage.md)
-7. [Development Roadmap](docs/development-roadmap.md)
-8. [Database Schema](docs/database-schema.sql)
-
-## Setup
-
-1. Copy `.env.example` to `.env` and set `DATABASE_URL`, `JWT_SECRET_KEY`, `QDRANT_URL`, `QDRANT_API_KEY`, `OPENROUTER_API_KEY`, and the two collection names:
-
-```text
-QDRANT_RULE_COLLECTION=compliance_rules
-QDRANT_UPLOAD_COLLECTION=audit_document_chunks
-```
-
-2. Install backend dependencies:
+Clone the repository:
 
 ```bash
-python -m pip install -e backend
+git clone https://github.com/Vikilokhande/rule-assitance.git
+cd rule-assitance
 ```
 
-3. Start the backend from the repository root:
+Create the backend environment:
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Create your environment file:
+
+```bash
+copy .env.example .env
+```
+
+For a first local run, the defaults in `.env.example` use SQLite and local storage. Set `JWT_SECRET_KEY` to any strong random value before sharing the app.
+
+Run database migrations:
+
+```bash
+alembic upgrade head
+```
+
+Start the backend:
 
 ```bash
 python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-4. Install and run the frontend:
+In a second terminal, start the frontend:
 
 ```bash
 cd frontend
@@ -81,22 +74,110 @@ npm install
 npm run dev
 ```
 
-5. Open `http://localhost:3000`. The first registered account becomes `ADMIN`; later registrations become `USER` unless their email is listed in `DEFAULT_ADMIN_EMAILS`.
+Open the app:
 
-## API Surface
+```text
+http://localhost:3000
+```
 
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `GET /api/auth/me`
-- `POST /api/audit/run`
-- `GET /api/audit/report/{id}`
-- `GET /api/admin/users`
-- `GET /api/admin/documents`
-- `POST /api/admin/rules/upload`
-- `DELETE /api/admin/document/{id}`
+The first registered user becomes an admin automatically. Later users are normal users unless their email is listed in `DEFAULT_ADMIN_EMAILS`.
 
-Versioned routes are also available under `/api/v1`.
+## Full Local Services
 
-## Storage Lifecycle
+To run PostgreSQL and Qdrant locally:
 
-Admin rule documents are permanent and stored under `storage/rules`, `storage/compliance`, or `storage/policies`. User uploads are stored under `storage/temp`, deleted after audit completion, and also swept by a cleanup worker after `TEMP_DOCUMENT_RETENTION_HOURS`.
+```bash
+docker compose -f docker-compose.dev.yml up -d
+```
+
+Then update `.env`:
+
+```env
+DATABASE_URL=postgresql+psycopg://audit_user:audit_password@127.0.0.1:5432/audit_compliance
+QDRANT_URL=http://127.0.0.1:6333
+QDRANT_API_KEY=
+```
+
+Run migrations again after switching databases:
+
+```bash
+alembic upgrade head
+```
+
+## Environment Variables
+
+Important backend values:
+
+```env
+APP_ENV=development
+APP_HOST=127.0.0.1
+APP_PORT=8000
+CORS_ORIGINS=http://localhost:3000
+DATABASE_URL=sqlite:///./audit_compliance_local.db
+JWT_SECRET_KEY=change-this-local-secret
+QDRANT_URL=
+QDRANT_API_KEY=
+QDRANT_RULE_COLLECTION=compliance_rules
+QDRANT_UPLOAD_COLLECTION=audit_document_chunks
+LLM_PROVIDER=openrouter
+OPENROUTER_API_KEY=
+OPENROUTER_MODEL=openai/gpt-4.1-mini
+GROQ_API_KEY=
+GEMINI_API_KEY=
+DEFAULT_ADMIN_EMAILS=
+```
+
+Important frontend values:
+
+```env
+NEXT_PUBLIC_API_BASE_URL=/api/backend
+BACKEND_API_URL=http://127.0.0.1:8000/api/v1
+```
+
+`frontend/next.config.ts` proxies `/api/backend/*` to the FastAPI backend, so the frontend can run without extra browser CORS setup.
+
+## Useful Commands
+
+Backend:
+
+```bash
+python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
+alembic revision --autogenerate -m "message"
+alembic upgrade head
+```
+
+Frontend:
+
+```bash
+cd frontend
+npm run dev
+npm run build
+npm run start
+```
+
+## API
+
+Backend API docs are available after starting FastAPI:
+
+```text
+http://127.0.0.1:8000/docs
+http://127.0.0.1:8000/redoc
+```
+
+Main route groups:
+
+- `/api/v1/auth`
+- `/api/v1/users`
+- `/api/v1/documents`
+- `/api/v1/rules`
+- `/api/v1/audits`
+- `/api/v1/reports`
+- `/api/v1/admin`
+- `/api/v1/health`
+
+## Notes
+
+- `.env`, virtual environments, `node_modules`, logs, uploaded files, generated reports, and local storage are intentionally ignored.
+- SQLite is enough to open and test the app locally.
+- Qdrant and an LLM API key are required for complete AI/RAG audit analysis.
+- Detailed system docs are in [docs/README.md](docs/README.md).

@@ -94,6 +94,14 @@ generated_reports/
 audit_reports/
 backend/storage/
 frontend/.next/
+!frontend/src/app/admin/reports/
+!frontend/src/app/admin/reports/**
+!frontend/src/app/dashboard/reports/
+!frontend/src/app/dashboard/reports/**
+!frontend/src/features/reports/
+!frontend/src/features/reports/**
+!frontend/src/features/uploads/
+!frontend/src/features/uploads/**
 
 # Local databases and backups
 *.sqlite

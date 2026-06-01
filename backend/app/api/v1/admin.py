@@ -4,7 +4,7 @@ from datetime import datetime
 from time import time
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 from sqlalchemy import delete, false, func, or_, select, update
@@ -22,6 +22,7 @@ from backend.app.db.models.audit import (
     Finding,
     ReportRecord,
 )
+from backend.app.db.models.batch import BatchDocument
 from backend.app.db.models.document import ComplianceDomain, DocumentChunk, DocumentRecord, UploadedDocument
 from backend.app.db.models.log import AuditLog
 from backend.app.db.models.rule import ComplianceRule, RuleDocument
@@ -30,7 +31,9 @@ from backend.app.db.session import get_db
 from backend.app.rag.indexing.embeddings import embedding_service
 from backend.app.rag.indexing.qdrant_store import qdrant_store
 from backend.app.schemas.document import DocumentResponse
+from backend.app.schemas.rule import RuleUploadBatchResponse
 from backend.app.services.audit_log_service import audit_log_service
+from backend.app.services.bulk_upload_service import bulk_rule_upload_service
 from backend.app.services.document_service import document_service
 from backend.app.services.rule_service import rule_service
 from backend.app.storage.s3_client import s3_storage
@@ -97,6 +100,53 @@ async def upload_rule_document(
         version=version,
     )
     return _rule_document_payload(rule)
+
+
+@router.post("/rules/bulk-upload", response_model=RuleUploadBatchResponse)
+async def bulk_upload_rule_documents(
+    background_tasks: BackgroundTasks,
+    files: list[UploadFile] = File(...),
+    rule_set_id: str = Form(default="default"),
+    domain: str | None = Form(default=None),
+    domains: list[str] | None = Form(default=None),
+    category: str = Form(default="Internal Policies"),
+    categories: list[str] | None = Form(default=None),
+    jurisdiction: str | None = Form(default=None),
+    document_type: str = Form(default="rules"),
+    version: str = Form(default="v1"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> RuleUploadBatchResponse:
+    batch, batch_files = await bulk_rule_upload_service.create_batch(
+        db=db,
+        user=current_user,
+        files=files,
+    )
+    if batch_files:
+        background_tasks.add_task(
+            bulk_rule_upload_service.process_batch,
+            batch_id=batch.id,
+            files=batch_files,
+            user_id=current_user.id,
+            rule_set_id=rule_set_id,
+            domain=domain,
+            domains=domains,
+            category=category,
+            categories=categories,
+            jurisdiction=jurisdiction,
+            document_type=document_type,
+            version=version,
+        )
+    return bulk_rule_upload_service.get_batch(db=db, batch_id=batch.id)
+
+
+@router.get("/rule-batches/{batch_id}", response_model=RuleUploadBatchResponse)
+def get_rule_upload_batch(
+    batch_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> RuleUploadBatchResponse:
+    return bulk_rule_upload_service.get_batch(db=db, batch_id=batch_id)
 
 
 @router.post("/documents/upload", response_model=DocumentResponse)
@@ -255,6 +305,108 @@ def list_audit_reports(
         for audit in db.scalars(select(AuditRun).where(AuditRun.id.in_([report.audit_id for report in reports]))).all()
     } if reports else {}
     return [_report_payload(report, audits.get(report.audit_id)) for report in reports]
+
+
+@router.delete("/audits/{audit_id}")
+def delete_audit(
+    audit_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> dict[str, Any]:
+    started = time()
+    audit = db.scalar(select(AuditRun).where(AuditRun.id == audit_id))
+    if audit is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Audit not found.")
+
+    audit_document_id = audit.document_id
+    audit_user_id = audit.user_id
+    audit_reports = list(db.scalars(select(AuditReport).where(AuditReport.audit_id == audit.id)))
+    report_records = list(db.scalars(select(ReportRecord).where(ReportRecord.audit_id == audit.id)))
+    finding_ids = list(db.scalars(select(Finding.id).where(Finding.audit_id == audit.id)))
+    s3_uris: set[str] = set()
+    for report in audit_reports:
+        _add_s3_uri(s3_uris, report.report_json_s3_uri)
+        _collect_s3_uris_from_value(s3_uris, report.report_payload)
+    for report in report_records:
+        _add_s3_uri(s3_uris, report.report_path)
+        _add_s3_uri(s3_uris, report.report_json_s3_uri)
+        _collect_s3_uris_from_value(s3_uris, report.report_payload)
+
+    try:
+        deleted_s3_objects_count = 0
+        for uri in sorted(s3_uris):
+            if s3_storage.delete_uri(uri):
+                deleted_s3_objects_count += 1
+        deleted_s3_objects_count += _delete_s3_prefix(
+            bucket=settings.report_bucket,
+            prefix=_s3_prefix(settings.s3_report_prefix, audit_user_id, audit.id),
+        )
+
+        evidence_count = _rowcount(
+            db.execute(
+                delete(EvidenceLink).where(
+                    EvidenceLink.finding_id.in_(finding_ids) if finding_ids else false(),
+                ),
+            ),
+        )
+        findings_count = _rowcount(db.execute(delete(Finding).where(Finding.audit_id == audit.id)))
+        audit_reports_count = _rowcount(db.execute(delete(AuditReport).where(AuditReport.audit_id == audit.id)))
+        reports_count = _rowcount(db.execute(delete(ReportRecord).where(ReportRecord.audit_id == audit.id)))
+        db.execute(update(BatchDocument).where(BatchDocument.audit_id == audit.id).values(audit_id=None))
+        db.delete(audit)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        log_pipeline_stage(
+            logger,
+            "ADMIN_AUDIT_DELETE_FAILED",
+            audit_id=audit_id,
+            document_id=audit_document_id,
+            domain=None,
+            started_at=started,
+            status="failed",
+            admin_user_id=current_user.id,
+            error=str(exc),
+        )
+        raise
+
+    audit_log_service.log(
+        db=db,
+        user=current_user,
+        action="admin.audit.deleted",
+        entity_type="audit_run",
+        entity_id=audit_id,
+        metadata={
+            "deleted_findings_count": findings_count,
+            "deleted_evidence_count": evidence_count,
+            "deleted_audit_reports_count": audit_reports_count,
+            "deleted_reports_count": reports_count,
+            "deleted_s3_objects_count": deleted_s3_objects_count,
+        },
+    )
+    log_pipeline_stage(
+        logger,
+        "ADMIN_AUDIT_DELETE_SUCCESS",
+        audit_id=audit_id,
+        document_id=audit_document_id,
+        domain=None,
+        started_at=started,
+        status="completed",
+        admin_user_id=current_user.id,
+        deleted_findings_count=findings_count,
+        deleted_evidence_count=evidence_count,
+        deleted_audit_reports_count=audit_reports_count,
+        deleted_reports_count=reports_count,
+        deleted_s3_objects_count=deleted_s3_objects_count,
+    )
+    return {
+        "status": "deleted",
+        "id": audit_id,
+        "deleted_findings_count": findings_count,
+        "deleted_evidence_count": evidence_count,
+        "deleted_audit_reports_count": audit_reports_count,
+        "deleted_reports_count": reports_count,
+    }
 
 
 @router.get("/compliance-rules")

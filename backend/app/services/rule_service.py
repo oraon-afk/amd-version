@@ -41,9 +41,37 @@ class RuleService:
         document_type: str = "rules",
         version: str = "v1",
     ) -> RuleDocument:
-        content = await file.read()
-        filename = _safe_filename(file.filename or "rule-document")
-        content_type = file.content_type or "application/octet-stream"
+        return self.upload_and_index_rule_bytes(
+            db=db,
+            user=user,
+            content=await file.read(),
+            filename=file.filename or "rule-document",
+            content_type=file.content_type or "application/octet-stream",
+            rule_set_id=rule_set_id,
+            domain=domain,
+            category=category,
+            jurisdiction=jurisdiction,
+            document_type=document_type,
+            version=version,
+        )
+
+    def upload_and_index_rule_bytes(
+        self,
+        *,
+        db: Session,
+        user: User,
+        content: bytes,
+        filename: str,
+        content_type: str,
+        rule_set_id: str,
+        domain: str | None = None,
+        category: str | None = None,
+        jurisdiction: str | None = None,
+        document_type: str = "rules",
+        version: str = "v1",
+    ) -> RuleDocument:
+        filename = _safe_filename(filename or "rule-document")
+        content_type = content_type or "application/octet-stream"
         validate_upload_file(filename=filename, content_type=content_type, content=content)
 
         rule_document_id = str(uuid4())

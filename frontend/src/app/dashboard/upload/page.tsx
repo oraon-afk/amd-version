@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, FileText, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { EmptyState } from "@/components/dashboard/EmptyState";
+import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Badge, riskVariant } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -23,10 +24,11 @@ export default function UploadPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold">Upload Workspace</h1>
-        <p className="mt-1 text-sm text-muted">Upload a file or paste raw text, then submit it for backend compliance analysis.</p>
-      </div>
+      <PageHeader
+        eyebrow="Compliance Check"
+        title="Upload Document"
+        description="Upload one temporary compliance document or paste raw text, then run it through the audit workflow."
+      />
       <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
         <UploadDropzone
           redirectOnComplete={false}
@@ -46,10 +48,10 @@ export default function UploadPage() {
                 <EmptyState icon={FileText} title="No uploads yet" copy="Uploaded documents will appear here after you create an audit." />
               )}
               {documents.slice(0, 5).map((document) => (
-                <div key={document.id} className="rounded-lg border border-line bg-white/5 p-3">
+                <div key={document.id} className="rounded-lg border border-line bg-elevated p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-3">
-                      <FileText className="h-5 w-5 shrink-0 text-cyan" />
+                      <FileText className="h-5 w-5 shrink-0 text-info" />
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold">{document.title}</div>
                         <div className="text-xs text-muted">{document.domain} - {formatDate(document.created_at)}</div>
@@ -84,15 +86,15 @@ function AuditReportPanel({ audit, document }: { audit: Audit | null; document: 
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3">
-        <CardTitle>Generated Audit Report</CardTitle>
+        <CardTitle>Compliance Assessment Results</CardTitle>
         <ShieldCheck className="h-5 w-5 text-cyan" />
       </CardHeader>
       <CardContent className="space-y-4">
         {!audit && (
-          <EmptyState icon={FileText} title="Awaiting audit" copy="Run AI Audit to generate the report here." />
+          <EmptyState icon={FileText} title="Awaiting assessment" copy="Run an AI assessment to generate compliance results here." />
         )}
         {audit && audit.status !== "completed" && audit.status !== "failed" && (
-          <div className="space-y-3 rounded-lg border border-cyan/25 bg-cyan/10 p-4">
+          <div className="space-y-3 rounded-lg border border-info/25 bg-primary/10 p-4">
             <div className="text-sm font-semibold">Audit running</div>
             <div className="text-sm text-muted">{document?.title ?? "Uploaded document"} is currently at: {audit.status}</div>
             <Progress value={progressForStatus(audit.status)} />
@@ -127,7 +129,7 @@ function AuditReportPanel({ audit, document }: { audit: Audit | null; document: 
             <div>
               <div className="mb-2 text-xs font-semibold uppercase text-muted">Violations</div>
               <div className="space-y-3">
-                {findings.length === 0 && <p className="rounded-lg border border-line bg-white/5 p-3 text-sm">No violations returned.</p>}
+                {findings.length === 0 && <p className="rounded-lg border border-line bg-elevated p-3 text-sm">No violations returned.</p>}
                 {findings.slice(0, 4).map((finding) => (
                   <FindingPreview key={finding.id} finding={finding} evidence={evidence.filter((item) => item.finding_id === finding.id)} />
                 ))}
@@ -142,7 +144,7 @@ function AuditReportPanel({ audit, document }: { audit: Audit | null; document: 
 
 function Metric({ label, value, badge }: { label: string; value: string; badge?: string | null }) {
   return (
-    <div className="rounded-lg border border-line bg-white/5 p-3">
+    <div className="rounded-lg border border-line bg-elevated p-3">
       <div className="text-xs uppercase text-muted">{label}</div>
       <div className="mt-2 text-sm font-semibold">
         {badge ? <Badge variant={riskVariant(badge)}>{value}</Badge> : value}
@@ -155,7 +157,7 @@ function Section({ title, value }: { title: string; value: string }) {
   return (
     <div>
       <div className="mb-1 text-xs font-semibold uppercase text-muted">{title}</div>
-      <p className="rounded-lg border border-line bg-black/20 p-3 text-sm leading-6">{value}</p>
+      <p className="rounded-lg border border-line bg-elevated p-3 text-sm leading-6">{value}</p>
     </div>
   );
 }
@@ -163,7 +165,7 @@ function Section({ title, value }: { title: string; value: string }) {
 function FindingPreview({ finding, evidence }: { finding: Finding; evidence: Evidence[] }) {
   const source = evidence[0];
   return (
-    <article className="rounded-lg border border-line bg-white/5 p-3">
+    <article className="rounded-lg border border-line bg-elevated p-3">
       <div className="mb-2 flex items-start justify-between gap-3">
         <div className="text-sm font-semibold">{finding.violated_rule}</div>
         <Badge variant={riskVariant(finding.risk_level)}>{finding.risk_level}</Badge>

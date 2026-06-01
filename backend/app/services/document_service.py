@@ -53,24 +53,53 @@ class DocumentService:
             filename = _safe_filename(file.filename or "uploaded-document")
             content_type = file.content_type or "application/octet-stream"
 
+        return self.upload_document_bytes(
+            db=db,
+            user=user,
+            title=title,
+            domain=domain,
+            content=content,
+            filename=filename,
+            content_type=content_type,
+            source_type=source_type,
+        )
+
+    def upload_document_bytes(
+        self,
+        *,
+        db: Session,
+        user: User,
+        title: str,
+        domain: str,
+        content: bytes,
+        filename: str,
+        content_type: str,
+        source_type: str = "file",
+        initial_status: str = "uploaded",
+    ) -> UploadedDocument:
+        title = title.strip()
+        domain = _normalize_domain(domain)
+        filename = _safe_filename(filename)
+        content_type = content_type or "application/octet-stream"
+        source_type = source_type or "file"
+        if not title:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Document title is required.")
+        if not domain:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Document domain is required.")
         validate_upload_file(filename=filename, content_type=content_type, content=content)
 
         role_type = user.role.upper()
         document_id = str(uuid4())
-        prefix = (
-            settings.s3_rule_prefix
-            if role_type == "ADMIN"
-            else settings.s3_temp_upload_prefix
-        ).strip("/")
+        prefix = settings.s3_temp_upload_prefix.strip("/")
         key = f"{prefix}/{user.id}/{document_id}/{filename}"
         metadata = {
             "uploaded-by": str(user.id),
             "role-type": role_type,
             "domain": domain,
             "source-type": source_type,
+            "module": "compliance_check",
         }
-        if role_type != "ADMIN":
-            metadata["retention-hours"] = str(settings.temp_document_retention_hours)
+        metadata["retention-hours"] = str(settings.temp_document_retention_hours)
         try:
             upload_started = time()
             uploaded = s3_storage.upload_bytes(
@@ -79,11 +108,7 @@ class DocumentService:
                 content=content,
                 content_type=content_type,
                 metadata=metadata,
-                expires_at=(
-                    datetime.utcnow() + timedelta(hours=settings.temp_document_retention_hours)
-                    if role_type != "ADMIN"
-                    else None
-                ),
+                expires_at=datetime.utcnow() + timedelta(hours=settings.temp_document_retention_hours),
             )
             log_pipeline_stage(
                 logger,
@@ -115,11 +140,7 @@ class DocumentService:
                 detail=f"S3 document storage failed: {exc}",
             ) from exc
 
-        expires_at = (
-            datetime.utcnow() + timedelta(hours=settings.temp_document_retention_hours)
-            if role_type != "ADMIN"
-            else datetime.utcnow() + timedelta(days=3650)
-        )
+        expires_at = datetime.utcnow() + timedelta(hours=settings.temp_document_retention_hours)
         document = UploadedDocument(
             id=document_id,
             user_id=user.id,
@@ -129,16 +150,16 @@ class DocumentService:
             source_type=source_type,
             s3_key=uploaded.key,
             qdrant_collection=settings.qdrant_upload_collection,
-            upload_status="uploaded",
-            processing_stage="uploaded",
-            cleanup_status="scheduled" if role_type != "ADMIN" else "permanent",
+            upload_status=initial_status,
+            processing_stage=initial_status,
+            cleanup_status="scheduled",
             file_name=filename,
             file_type=content_type,
             filename=filename,
             content_type=content_type,
             s3_uri=uploaded.uri,
             sha256=sha256(content).hexdigest(),
-            status="uploaded",
+            status=initial_status,
             expires_at=expires_at,
         )
         try:

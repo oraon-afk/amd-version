@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3, HardDrive } from "lucide-react";
+import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,10 +16,11 @@ export default function AdminAnalyticsPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold">Analytics</h1>
-        <p className="mt-1 text-sm text-muted">Operational metrics and storage usage.</p>
-      </div>
+      <PageHeader
+        eyebrow="Analytics"
+        title="Executive Analytics"
+        description="Operational trends, audit reliability, policy coverage, and storage usage for compliance leadership."
+      />
       {(analyticsQuery.error || storageQuery.error) && (
         <p className="rounded-lg border border-riskHigh/30 bg-riskHigh/10 p-3 text-sm text-riskHigh">
           {getErrorMessage(analyticsQuery.error ?? storageQuery.error)}
@@ -32,6 +34,32 @@ export default function AdminAnalyticsPage() {
           <Metric label="Rule Coverage Docs" value={analytics.rule_documents} />
         </section>
       )}
+      {analytics && (
+        <section className="grid gap-5 xl:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Audit Volume</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <TrendBar label="Completed" value={analytics.completed_audits} total={Math.max(analytics.audits, 1)} tone="bg-success" />
+              <TrendBar label="Failed" value={analytics.failed_audits} total={Math.max(analytics.audits, 1)} tone="bg-critical" />
+              <TrendBar label="High Risk" value={analytics.high_risk_audits} total={Math.max(analytics.audits, 1)} tone="bg-warning" />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Policy Coverage</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <TrendBar label="Rule documents" value={analytics.rule_documents} total={Math.max(analytics.uploaded_documents + analytics.rule_documents, 1)} tone="bg-info" />
+              <TrendBar label="Uploaded documents" value={analytics.uploaded_documents} total={Math.max(analytics.uploaded_documents + analytics.rule_documents, 1)} tone="bg-primary" />
+              <div className="rounded-lg border border-line bg-elevated p-4 text-sm text-muted">
+                Total users: <span className="font-semibold text-foreground">{analytics.users}</span>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+      )}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Storage Monitoring</CardTitle>
@@ -40,7 +68,7 @@ export default function AdminAnalyticsPage() {
         <CardContent className="space-y-3">
           {storageQuery.isLoading && <Skeleton className="h-24 w-full" />}
           {storageQuery.data && Object.entries(storageQuery.data.areas).map(([area, stats]) => (
-            <div key={area} className="rounded-lg border border-line bg-white/5 p-4">
+            <div key={area} className="rounded-lg border border-line bg-elevated p-4">
               <div className="flex items-center justify-between gap-3 text-sm">
                 <span className="font-semibold">{area}</span>
                 <span className="text-muted">{stats.files} files | {formatBytes(stats.bytes)}</span>
@@ -65,6 +93,21 @@ function Metric({ label, value, suffix = "" }: { label: string; value: number; s
         <BarChart3 className="h-6 w-6 text-cyan" />
       </CardContent>
     </Card>
+  );
+}
+
+function TrendBar({ label, value, total, tone }: { label: string; value: number; total: number; tone: string }) {
+  const percent = Math.round((value / total) * 100);
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between text-sm">
+        <span className="font-medium">{label}</span>
+        <span className="text-muted">{value} ({percent}%)</span>
+      </div>
+      <div className="h-3 overflow-hidden rounded-full bg-slate/40">
+        <div className={`h-full rounded-full ${tone}`} style={{ width: `${Math.min(100, percent)}%` }} />
+      </div>
+    </div>
   );
 }
 
