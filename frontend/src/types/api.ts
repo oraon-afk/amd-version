@@ -42,11 +42,15 @@ export type UploadBatchDocument = {
   document_id: string | null;
   audit_id: string | null;
   filename: string;
+  content_type?: string | null;
+  file_size_bytes: number;
   title: string;
   domain: string | null;
   queue_position: number;
   status: string;
   current_stage: string | null;
+  retry_count: number;
+  max_retries: number;
   error_message: string | null;
   processing_time_seconds: number | null;
   started_at: string | null;
@@ -62,8 +66,12 @@ export type UploadBatch = {
   total_documents: number;
   completed_documents: number;
   failed_documents: number;
+  processed_documents: number;
+  pending_documents: number;
+  progress_label: string | null;
   running_document: string | null;
   error_message: string | null;
+  summary_report: Record<string, unknown> | null;
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -153,6 +161,7 @@ export type AuditReport = {
     failed_rules?: number;
     recommendations?: string[];
     context_ready?: boolean;
+    score_diagnostics?: ScoreDiagnostics;
     [key: string]: unknown;
   };
   report_json_s3_uri: string | null;
@@ -219,7 +228,11 @@ export type RuleUploadBatchItem = {
   batch_id: string;
   rule_document_id: string | null;
   filename: string;
+  content_type?: string | null;
+  file_size_bytes: number;
   status: string;
+  retry_count: number;
+  max_retries: number;
   error_message: string | null;
   processing_time_seconds: number | null;
   started_at: string | null;
@@ -235,8 +248,12 @@ export type RuleUploadBatch = {
   total_documents: number;
   completed_documents: number;
   failed_documents: number;
+  processed_documents: number;
+  pending_documents: number;
+  progress_label: string | null;
   running_document: string | null;
   error_message: string | null;
+  summary_report: Record<string, unknown> | null;
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -252,9 +269,72 @@ export type ComplianceRule = {
   rule_text: string;
   reference: string | null;
   version: string;
+  status: "active" | "archived" | string;
   created_by: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type ScoreDiagnostics = {
+  rules_evaluated: number;
+  rules_matched: number;
+  rules_failed: number;
+  match_confidence: number | null;
+  compliance_score?: number | string | null;
+  score_reasoning: string;
+  context_ready: boolean;
+  retrieval_query_chars?: number;
+  rule_matches?: Array<Record<string, unknown>>;
+  failed_rules?: Array<Record<string, unknown>>;
+};
+
+export type DigitalTwinPolicyProfile = {
+  id: string;
+  document_id: string;
+  latest_audit_id: string | null;
+  latest_report_id: string | null;
+  title: string;
+  domain: string;
+  status: string;
+  compliance_score: number | null;
+  risk_level: string | null;
+  findings_count: number;
+  coverage_status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DigitalTwinSnapshot = {
+  id: string;
+  twin_id: string;
+  maturity_score: number;
+  coverage_score: number;
+  risk_score: number;
+  total_policies: number;
+  missing_policy_count: number;
+  high_risk_policy_count: number;
+  summary_text: string;
+  snapshot_payload: Record<string, unknown>;
+  created_at: string;
+};
+
+export type ComplianceDigitalTwin = {
+  id: string;
+  user_id: string | null;
+  name: string;
+  status: string;
+  maturity_score: number;
+  coverage_score: number;
+  risk_score: number;
+  missing_policies: Array<Record<string, unknown>>;
+  risk_heatmap: Array<Record<string, unknown>>;
+  policy_inventory: Array<Record<string, unknown>>;
+  summary: Record<string, unknown>;
+  generated_at: string | null;
+  created_at: string;
+  updated_at: string;
+  policies: DigitalTwinPolicyProfile[];
+  history: DigitalTwinSnapshot[];
 };
 
 export type RuleCategory = {

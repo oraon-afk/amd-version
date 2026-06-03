@@ -44,7 +44,7 @@ import { listDocuments } from "@/features/uploads/api";
 import { cn, formatDate, formatPercent } from "@/lib/utils";
 import { listAdminDocuments } from "@/services/admin/admin-service";
 import { getErrorMessage } from "@/services/api/client";
-import { AuditReport, Evidence, Finding, ReportFindingPayload } from "@/types/api";
+import { AuditReport, Evidence, Finding, ReportFindingPayload, ScoreDiagnostics } from "@/types/api";
 
 type RiskCounts = {
   critical: number;
@@ -80,6 +80,7 @@ type EvidenceCardData = {
   violationReason: string;
   sourcePage: number | null;
   confidence: number | null;
+  sourceType: string;
 };
 
 const NOT_RETURNED = "Not returned by backend";
@@ -139,6 +140,7 @@ export default function ReportDetailPage() {
   const aiSummary = getAiSummary(report);
   const keyRisks = getKeyRisks(findingViews);
   const recommendations = getRecommendations(report, findingViews);
+  const scoreDiagnostics = getScoreDiagnostics(report);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "development" || !report) return;
@@ -243,7 +245,7 @@ export default function ReportDetailPage() {
           </section>
 
           <section className="grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
-            <ComplianceScorePanel score={complianceScore} />
+            <ComplianceScorePanel score={complianceScore} diagnostics={scoreDiagnostics} />
             <RiskBreakdown riskCounts={riskCounts} />
           </section>
 
@@ -421,7 +423,7 @@ function SummaryTile({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ComplianceScorePanel({ score }: { score: number | null }) {
+function ComplianceScorePanel({ score, diagnostics }: { score: number | null; diagnostics: ScoreDiagnostics | null }) {
   const progress = scoreToProgress(score);
 
   return (
@@ -443,11 +445,17 @@ function ComplianceScorePanel({ score }: { score: number | null }) {
             ) : (
               <Progress value={progress} />
             )}
-            <p className="mt-3 text-sm leading-6 text-muted">
-              This value is read from the report API response and report payload score fields. Missing score data is not converted to zero.
-            </p>
+            <p className="mt-3 text-sm leading-6 text-muted">{diagnostics?.score_reasoning ?? "Score diagnostics were not returned for this report."}</p>
           </div>
         </div>
+        {diagnostics && (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <SummaryTile label="Rules Evaluated" value={String(diagnostics.rules_evaluated)} />
+            <SummaryTile label="Rules Matched" value={String(diagnostics.rules_matched)} />
+            <SummaryTile label="Rules Failed" value={String(diagnostics.rules_failed)} />
+            <SummaryTile label="Match Confidence" value={formatConfidence(diagnostics.match_confidence)} />
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -564,7 +572,7 @@ function EvidenceViewer({ finding }: { finding: FindingView }) {
       </summary>
       <div className="space-y-3 border-t border-line p-4">
         <EvidenceFact label="Document Section" value={finding.documentSection} />
-        <EvidenceFact label="Extracted Text" value={finding.extractedText} />
+        <EvidenceFact label="Highlighted Evidence" value={finding.extractedText} highlightWith={finding.matchedRule} />
         <EvidenceFact label="Matched Rule" value={finding.matchedRule} />
         <EvidenceFact label="Violation Reason" value={finding.violationReason} />
         {finding.evidence.length > 0 && (
@@ -573,11 +581,12 @@ function EvidenceViewer({ finding }: { finding: FindingView }) {
             {finding.evidence.map((item) => (
               <div key={item.id} className="rounded-lg border border-line bg-white/5 p-3 text-sm leading-6">
                 <div className="mb-2 flex flex-wrap gap-2">
+                  <Badge variant="muted">{item.source_type.replaceAll("_", " ")}</Badge>
                   <Badge variant="muted">{item.section_title ?? item.citation_label ?? "Section not returned"}</Badge>
                   <Badge variant="muted">{formatPage(item.page_number)}</Badge>
                   <Badge variant="cyan">{formatConfidence(item.confidence_score)}</Badge>
                 </div>
-                <p>{item.citation_text}</p>
+                <HighlightedText text={item.citation_text} termsFrom={finding.matchedRule} />
               </div>
             ))}
           </div>
@@ -587,12 +596,36 @@ function EvidenceViewer({ finding }: { finding: FindingView }) {
   );
 }
 
-function EvidenceFact({ label, value }: { label: string; value: string }) {
+function EvidenceFact({ label, value, highlightWith }: { label: string; value: string; highlightWith?: string }) {
   return (
     <div className="rounded-lg border border-line bg-white/5 p-3">
       <div className="mb-1 text-xs font-semibold uppercase text-muted">{label}</div>
-      <p className="whitespace-pre-wrap text-sm leading-6">{value}</p>
+      {highlightWith ? (
+        <HighlightedText text={value} termsFrom={highlightWith} />
+      ) : (
+        <p className="whitespace-pre-wrap text-sm leading-6">{value}</p>
+      )}
     </div>
+  );
+}
+
+function HighlightedText({ text, termsFrom }: { text: string; termsFrom: string }) {
+  const terms = importantTerms(termsFrom);
+  const parts = text.split(/(\s+)/);
+  return (
+    <p className="whitespace-pre-wrap text-sm leading-6">
+      {parts.map((part, index) => {
+        const normalized = normalizeEvidenceToken(part);
+        if (normalized && terms.has(normalized)) {
+          return (
+            <mark key={`${part}-${index}`} className="rounded bg-warning/25 px-1 text-foreground">
+              {part}
+            </mark>
+          );
+        }
+        return <span key={`${part}-${index}`}>{part}</span>;
+      })}
+    </p>
   );
 }
 
@@ -623,11 +656,12 @@ function EvidenceCard({ card, onCopy }: { card: EvidenceCardData; onCopy: () => 
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge variant="muted">{formatPage(card.sourcePage)}</Badge>
+          <Badge variant="muted">{card.sourceType.replaceAll("_", " ")}</Badge>
           <Badge variant="cyan">{formatConfidence(card.confidence)}</Badge>
         </div>
       </div>
       <div className="mt-3 space-y-3">
-        <EvidenceFact label="Extracted Text" value={truncateText(card.extractedText, 420)} />
+        <EvidenceFact label="Source Chunk" value={truncateText(card.extractedText, 420)} highlightWith={card.matchedRule} />
         <EvidenceFact label="Matched Rule" value={card.matchedRule} />
         <EvidenceFact label="Violation Reason" value={card.violationReason} />
       </div>
@@ -905,6 +939,7 @@ function buildEvidenceCards(findings: FindingView[]): EvidenceCardData[] {
         violationReason: finding.violationReason,
         sourcePage: evidence.page_number ?? finding.sourcePage,
         confidence: readNumber(evidence.confidence_score) ?? finding.confidence,
+        sourceType: evidence.source_type,
       }));
     }
 
@@ -918,6 +953,7 @@ function buildEvidenceCards(findings: FindingView[]): EvidenceCardData[] {
         violationReason: finding.violationReason,
         sourcePage: finding.sourcePage,
         confidence: finding.confidence,
+        sourceType: "report_payload",
       },
     ];
   });
@@ -937,6 +973,13 @@ function getRecommendations(report: AuditReport | null, findings: FindingView[])
     ? payloadRecommendations.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
   return uniqueStrings([...recommendations, ...findings.map((finding) => finding.recommendation)]);
+}
+
+function getScoreDiagnostics(report: AuditReport | null): ScoreDiagnostics | null {
+  if (!report) return null;
+  const diagnostics = getReportPayload(report).score_diagnostics;
+  if (!diagnostics || typeof diagnostics !== "object" || Array.isArray(diagnostics)) return null;
+  return diagnostics as ScoreDiagnostics;
 }
 
 function getPayloadValue(report: AuditReport, key: string) {
@@ -1004,6 +1047,21 @@ function normalizeText(value: string) {
 
 function uniqueStrings(values: Array<string | null | undefined>) {
   return Array.from(new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value))));
+}
+
+function importantTerms(value: string) {
+  const stopWords = new Set(["the", "and", "that", "with", "from", "this", "shall", "must", "will", "policy", "rule"]);
+  return new Set(
+    value
+      .split(/\s+/)
+      .map(normalizeEvidenceToken)
+      .filter((term) => term.length > 4 && !stopWords.has(term))
+      .slice(0, 18),
+  );
+}
+
+function normalizeEvidenceToken(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9-]/g, "");
 }
 
 function scoreToProgress(score: number | null) {
@@ -1074,6 +1132,7 @@ function copyEvidenceCard(card: EvidenceCardData, toast: ReturnType<typeof useTo
   copyText(
     [
       `Document Section: ${card.documentSection}`,
+      `Source Type: ${card.sourceType}`,
       `Extracted Text: ${card.extractedText}`,
       `Matched Rule: ${card.matchedRule}`,
       `Violation Reason: ${card.violationReason}`,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ListChecks, Plus } from "lucide-react";
+import { Archive, Edit3, ListChecks, Plus, Save, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { EmptyState } from "@/components/dashboard/EmptyState";
 import { Badge } from "@/components/ui/badge";
@@ -12,8 +12,17 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
-import { createComplianceRule, createRuleCategory, listComplianceRules, listRuleCategories } from "@/services/admin/admin-service";
+import {
+  archiveComplianceRule,
+  createComplianceRule,
+  createRuleCategory,
+  deleteComplianceRule,
+  listComplianceRules,
+  listRuleCategories,
+  updateComplianceRule,
+} from "@/services/admin/admin-service";
 import { getErrorMessage } from "@/services/api/client";
+import { ComplianceRule } from "@/types/api";
 
 export default function AdminComplianceRulesPage() {
   const queryClient = useQueryClient();
@@ -26,6 +35,7 @@ export default function AdminComplianceRulesPage() {
   const [version, setVersion] = useState("v1");
   const [ruleText, setRuleText] = useState("");
   const [newCategory, setNewCategory] = useState("");
+  const [editingRule, setEditingRule] = useState<ComplianceRule | null>(null);
 
   const createRuleMutation = useMutation({
     mutationFn: () => createComplianceRule({ category, title, reference, version, rule_text: ruleText }),
@@ -47,6 +57,45 @@ export default function AdminComplianceRulesPage() {
       toast({ title: "Category created" });
     },
     onError: (error) => toast({ title: "Create category failed", description: getErrorMessage(error), variant: "error" }),
+  });
+
+  const updateRuleMutation = useMutation({
+    mutationFn: () => {
+      if (!editingRule) throw new Error("Choose a rule to edit.");
+      return updateComplianceRule(editingRule.id, {
+        category: editingRule.category,
+        title: editingRule.title,
+        reference: editingRule.reference ?? "",
+        version: editingRule.version,
+        rule_text: editingRule.rule_text,
+        description: editingRule.description ?? undefined,
+        status: editingRule.status === "archived" ? "archived" : "active",
+      });
+    },
+    onSuccess: () => {
+      setEditingRule(null);
+      queryClient.invalidateQueries({ queryKey: ["admin-compliance-rules"] });
+      toast({ title: "Compliance rule updated" });
+    },
+    onError: (error) => toast({ title: "Update rule failed", description: getErrorMessage(error), variant: "error" }),
+  });
+
+  const archiveRuleMutation = useMutation({
+    mutationFn: archiveComplianceRule,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-compliance-rules"] });
+      toast({ title: "Compliance rule archived" });
+    },
+    onError: (error) => toast({ title: "Archive rule failed", description: getErrorMessage(error), variant: "error" }),
+  });
+
+  const deleteRuleMutation = useMutation({
+    mutationFn: deleteComplianceRule,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-compliance-rules"] });
+      toast({ title: "Compliance rule deleted" });
+    },
+    onError: (error) => toast({ title: "Delete rule failed", description: getErrorMessage(error), variant: "error" }),
   });
 
   return (
@@ -110,14 +159,52 @@ export default function AdminComplianceRulesPage() {
             )}
             {rulesQuery.data?.map((rule) => (
               <article key={rule.id} className="rounded-lg border border-line bg-elevated p-4">
-                <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <div className="text-sm font-semibold">{rule.title}</div>
-                    <div className="mt-1 text-xs text-muted">{rule.reference ?? "No reference"} - {rule.version}</div>
+                {editingRule?.id === rule.id ? (
+                  <div className="space-y-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Input value={editingRule.title} onChange={(event) => setEditingRule({ ...editingRule, title: event.target.value })} />
+                      <Input value={editingRule.version} onChange={(event) => setEditingRule({ ...editingRule, version: event.target.value })} />
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Input value={editingRule.category} onChange={(event) => setEditingRule({ ...editingRule, category: event.target.value })} />
+                      <Input value={editingRule.reference ?? ""} onChange={(event) => setEditingRule({ ...editingRule, reference: event.target.value })} />
+                    </div>
+                    <Textarea value={editingRule.rule_text} onChange={(event) => setEditingRule({ ...editingRule, rule_text: event.target.value })} />
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" onClick={() => updateRuleMutation.mutate()} disabled={updateRuleMutation.isPending}>
+                        <Save className="h-4 w-4" /> Save
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={() => setEditingRule(null)}>
+                        <X className="h-4 w-4" /> Cancel
+                      </Button>
+                    </div>
                   </div>
-                  <Badge variant="cyan">{rule.category}</Badge>
-                </div>
-                <p className="line-clamp-4 text-sm leading-6 text-muted">{rule.rule_text}</p>
+                ) : (
+                  <>
+                    <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="break-words text-sm font-semibold">{rule.title}</div>
+                        <div className="mt-1 text-xs text-muted">{rule.reference ?? "No reference"} - {rule.version}</div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant={rule.status === "archived" ? "muted" : "cyan"}>{rule.status}</Badge>
+                        <Badge variant="cyan">{rule.category}</Badge>
+                      </div>
+                    </div>
+                    <p className="line-clamp-4 text-sm leading-6 text-muted">{rule.rule_text}</p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Button size="sm" variant="secondary" onClick={() => setEditingRule(rule)}>
+                        <Edit3 className="h-4 w-4" /> Edit
+                      </Button>
+                      <Button size="sm" variant="secondary" disabled={rule.status === "archived" || archiveRuleMutation.isPending} onClick={() => archiveRuleMutation.mutate(rule.id)}>
+                        <Archive className="h-4 w-4" /> Archive
+                      </Button>
+                      <Button size="sm" variant="destructive" disabled={deleteRuleMutation.isPending} onClick={() => deleteRuleMutation.mutate(rule.id)}>
+                        <Trash2 className="h-4 w-4" /> Delete
+                      </Button>
+                    </div>
+                  </>
+                )}
               </article>
             ))}
           </CardContent>

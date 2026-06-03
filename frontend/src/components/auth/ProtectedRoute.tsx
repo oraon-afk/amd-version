@@ -16,11 +16,19 @@ export function ProtectedRoute({
 }) {
   const router = useRouter();
   const { user, isLoading } = useAuth();
-  const allowedRoles = useMemo(() => roles?.map((role) => role.toUpperCase()), [roles]);
+  const roleKey = roles?.join("|") ?? "";
+  const allowedRoles = useMemo(() => (roleKey ? roleKey.split("|").map((role) => role.toUpperCase()) : undefined), [roleKey]);
 
   useEffect(() => {
-    if (!isLoading && !user) router.push("/login");
-    if (!isLoading && user && redirectAdminToAdmin && user.role === "ADMIN") router.replace("/admin");
+    if (isLoading) return;
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+    if (redirectAdminToAdmin && user.role === "ADMIN") {
+      router.replace("/admin");
+      return;
+    }
     if (!isLoading && user && allowedRoles && !allowedRoles.includes(user.role.toUpperCase())) {
       router.replace(user.role === "ADMIN" ? "/admin" : "/dashboard");
     }

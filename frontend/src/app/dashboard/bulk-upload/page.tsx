@@ -8,12 +8,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useToast } from "@/components/ui/toast";
 import { bulkUploadDocuments, getUploadBatch, listComplianceDomains } from "@/features/uploads/api";
 import { getErrorMessage } from "@/services/api/client";
 
 const terminalStatuses = new Set(["completed", "completed_with_failures", "failed"]);
-const MAX_BULK_DOCUMENTS = 100;
+const MAX_BULK_DOCUMENTS = 2000;
 
 type ComplianceFileRow = {
   id: string;
@@ -29,11 +30,19 @@ export default function BulkComplianceUploadPage() {
   const [ruleSetId, setRuleSetId] = useState("");
   const [batchId, setBatchId] = useState<string | null>(null);
   const domainsQuery = useQuery({ queryKey: ["compliance-domains"], queryFn: listComplianceDomains });
+  const domainOptions = (domainsQuery.data ?? []).map((item) => ({
+    value: item.name,
+    label: item.name,
+    description: item.description,
+  }));
   const batchQuery = useQuery({
     queryKey: ["upload-batch", batchId],
     queryFn: () => getUploadBatch(batchId!),
     enabled: Boolean(batchId),
-    refetchInterval: 2000,
+    refetchInterval: (query) => {
+      const status = (query.state.data as { status?: string } | undefined)?.status;
+      return status && terminalStatuses.has(status) ? false : 2000;
+    },
   });
   const batch = batchQuery.data;
 
@@ -77,21 +86,20 @@ export default function BulkComplianceUploadPage() {
           <CardContent className="space-y-4">
             <label className="block text-sm font-medium">
               Default Domain
-              <select
+              <SearchableSelect
                 value={defaultDomain}
-                onChange={(event) => {
-                  setDefaultDomain(event.target.value);
-                  if (event.target.value) {
-                    setFileRows((current) => current.map((row) => ({ ...row, domain: row.domain || event.target.value })));
+                onChange={(nextDomain) => {
+                  setDefaultDomain(nextDomain);
+                  if (nextDomain) {
+                    setFileRows((current) => current.map((row) => ({ ...row, domain: row.domain || nextDomain })));
                   }
                 }}
-                className="mt-2 h-11 w-full rounded-lg border border-line bg-elevated px-3 text-sm text-foreground outline-none focus:border-info/70"
-              >
-                <option value="">{domainsQuery.isLoading ? "Loading domains" : "Optional default"}</option>
-                {(domainsQuery.data ?? []).map((item) => (
-                  <option key={item.id ?? item.name} value={item.name}>{item.name}</option>
-                ))}
-              </select>
+                options={domainOptions}
+                placeholder={domainsQuery.isLoading ? "Loading domains" : "Optional default"}
+                disabled={domainsQuery.isLoading || domainOptions.length === 0}
+                className="mt-2"
+                ariaLabel="Default compliance domain"
+              />
             </label>
             <label className="block text-sm font-medium">
               Rule Set ID
@@ -133,17 +141,14 @@ export default function BulkComplianceUploadPage() {
                       <FileText className="h-4 w-4 shrink-0 text-info" />
                       <span className="truncate">{row.file.name}</span>
                     </div>
-                    <select
+                    <SearchableSelect
                       value={row.domain}
-                      onChange={(event) => updateRowDomain(setFileRows, row.id, event.target.value)}
-                      className="h-10 w-full rounded-lg border border-line bg-panel px-3 text-sm text-foreground outline-none focus:border-info/70"
-                      aria-label={`Domain for ${row.file.name}`}
-                    >
-                      <option value="">Select domain</option>
-                      {(domainsQuery.data ?? []).map((item) => (
-                        <option key={item.id ?? item.name} value={item.name}>{item.name}</option>
-                      ))}
-                    </select>
+                      onChange={(nextDomain) => updateRowDomain(setFileRows, row.id, nextDomain)}
+                      options={domainOptions}
+                      placeholder="Select domain"
+                      disabled={domainsQuery.isLoading || domainOptions.length === 0}
+                      ariaLabel={`Domain for ${row.file.name}`}
+                    />
                     <button
                       type="button"
                       aria-label={`Remove ${row.file.name}`}
@@ -184,10 +189,11 @@ export default function BulkComplianceUploadPage() {
                   <Metric label="Progress" value={`${progress}%`} />
                 </div>
                 <Progress value={progress} />
-                <div className="text-sm text-muted">
-                  Current: {isRunning ? batch.running_document ?? "Next document" : "Batch processing finished"}
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted">
+                  <span>{batch.progress_label ?? `Processed ${completed} / ${batch.total_documents}`}</span>
+                  <span>Current: {isRunning ? batch.running_document ?? "Next document" : "Batch processing finished"}</span>
                 </div>
-                <div className="space-y-2">
+                <div className="max-h-[560px] space-y-2 overflow-y-auto pr-1">
                   {batch.documents.map((item) => (
                     <div key={item.id} className="rounded-lg border border-line bg-elevated p-3">
                       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -253,8 +259,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 function statusLabel(status: string) {
   const normalized = status.replaceAll("_", " ");
   if (status === "queued") return "Queued";
-  if (status === "extracting" || status === "chunking" || status === "embedding" || status === "processing") return "Processing";
-  if (status === "retrieving_rules" || status === "reranking" || status === "analyzing" || status === "generating_report") return "Analyzing";
+  if (status === "processing" || status === "extracting" || status === "chunking" || status === "embedding" || status === "retrieving_rules" || status === "reranking" || status === "analyzing" || status === "generating_report") return "Processing";
   if (status === "completed") return "Completed";
   if (status === "failed") return "Failed";
   return normalized;

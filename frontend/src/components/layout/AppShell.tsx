@@ -2,6 +2,7 @@
 
 import {
   ClipboardList,
+  Gauge,
   FolderUp,
   LayoutDashboard,
   ListChecks,
@@ -36,7 +37,11 @@ const workspaceSections = [
     ],
   },
   {
-    label: "Administration",
+    label: "Digital Twin",
+    links: [{ href: "/dashboard/digital-twin", label: "Compliance Twin", icon: Gauge }],
+  },
+  {
+    label: "Settings",
     links: [{ href: "/dashboard/settings", label: "Settings", icon: Settings }],
   },
 ];
@@ -47,8 +52,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background bg-app-radial text-foreground">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-line bg-panel/95 p-4 backdrop-blur-xl lg:block">
-        <div className="mb-7 flex items-center gap-3 px-2">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden h-screen w-72 flex-col border-r border-line bg-panel/95 p-4 backdrop-blur-xl lg:flex">
+        <div className="mb-7 flex shrink-0 items-center gap-3 px-2">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary shadow-glow">
             <ShieldCheck className="h-5 w-5 text-white" />
           </div>
@@ -57,7 +62,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="text-xs text-muted">Compliance Intelligence</div>
           </div>
         </div>
-        <nav className="space-y-5 text-sm" aria-label="Workspace navigation">
+        <nav className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1 text-sm" aria-label="Workspace navigation">
           {workspaceSections.map((section) => (
             <div key={section.label}>
               <div className="mb-2 px-3 text-[11px] font-semibold uppercase text-muted">{section.label}</div>
@@ -75,7 +80,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           ))}
         </nav>
-        <div className="absolute bottom-4 left-4 right-4 rounded-lg border border-line bg-elevated p-3">
+        <div className="mt-4 shrink-0 rounded-lg border border-line bg-elevated p-3">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-navy text-sm font-bold text-info">
               {(user?.full_name ?? user?.email ?? "U").slice(0, 1).toUpperCase()}
@@ -88,10 +93,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
       <div className="lg:pl-72">
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-line bg-background/86 px-4 backdrop-blur-xl md:px-6">
-          <div>
+        <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-line bg-background/86 px-4 py-3 backdrop-blur-xl md:px-6">
+          <div className="min-w-0">
             <div className="text-xs uppercase text-muted">Enterprise Compliance Workspace</div>
-            <div className="flex items-center gap-2 text-sm font-semibold md:text-base">
+            <div className="flex min-w-0 items-center gap-2 text-sm font-semibold md:text-base">
               <Sparkles className="h-4 w-4 text-info" /> Policy Review & Evidence Tracing
             </div>
           </div>
@@ -117,7 +122,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             ))}
           </div>
         </div>
-        <main className="p-4 md:p-6 xl:p-8">{children}</main>
+        <main className="min-w-0 p-4 md:p-6 xl:p-8">{children}</main>
       </div>
     </div>
   );

@@ -8,22 +8,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from time import sleep, time
 from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
 from uuid import uuid4
 
 from json_repair import repair_json
-from openai import OpenAI
 
 from backend.app.core.config import PROJECT_ROOT, settings
 from backend.app.core.logging import get_logger, log_pipeline_stage
+from backend.app.services.llm_providers import LLMGenerationResult, ProviderRouter
 
 logger = get_logger(__name__)
 
 _TRAILING_COMMA_RE = re.compile(r",(\s*[}\]])")
 _FENCED_JSON_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 _REQUIRED_RESPONSE_KEYS = frozenset({"summary", "findings", "compliance_score"})
+_MAX_COMPLETION_TOKENS = 700
 
 
 class LLMResponseValidationError(ValueError):
@@ -41,58 +39,38 @@ class LLMResponseValidationError(ValueError):
         self.present_keys = present_keys or []
 
 
-class LLMHTTPError(RuntimeError):
-    def __init__(self, message: str, *, status_code: int, detail: str) -> None:
-        super().__init__(message)
-        self.status_code = status_code
-        self.detail = detail
-
-
 @dataclass(frozen=True)
 class LLMRequestMetadata:
     estimated_tokens: int
     max_tokens: int
     prompt_chars: int
+    system_chars: int
+    user_chars: int
 
 
 class LLMService:
     def __init__(self) -> None:
-        self._client: OpenAI | None = None
-
-    @property
-    def client(self) -> OpenAI:
-        if self._client is None:
-            if settings.llm_provider_normalized not in {"openrouter", "groq"}:
-                raise RuntimeError(f"Unsupported LLM provider: {settings.llm_provider}")
-            if not settings.llm_configured:
-                raise RuntimeError(
-                    f"{settings.llm_provider_normalized} LLM settings are incomplete.",
-                )
-
-            default_headers = None
-            if settings.llm_provider_normalized == "openrouter":
-                default_headers = {
-                    "HTTP-Referer": "http://localhost:3000",
-                    "X-Title": settings.app_name,
-                }
-            self._client = OpenAI(
-                api_key=settings.llm_api_key,
-                base_url=settings.llm_base_url,
-                default_headers=default_headers,
-                timeout=settings.llm_timeout_seconds,
-                max_retries=0,
-            )
-        return self._client
+        self._provider_router = ProviderRouter()
 
     def warm(self) -> bool:
-        if settings.llm_provider_normalized in {"openrouter", "groq"}:
-            _ = self.client
-            return True
-        if settings.llm_provider_normalized in {"gemini", "google", "google-gemini"}:
-            if not settings.llm_configured:
-                raise RuntimeError("Gemini LLM settings are incomplete.")
-            return True
-        raise RuntimeError(f"Unsupported LLM provider: {settings.llm_provider}")
+        queue = self._provider_router.retry_queue()
+        if not queue:
+            raise RuntimeError("No configured LLM provider is available.")
+        selected = queue[0]
+        logger.info("LLM Provider: %s", _provider_display_name(selected.provider))
+        logger.info("Model: %s", selected.model)
+        logger.info("Status: Active")
+        logger.info(
+            "LLM retry queue: %s",
+            [
+                {"provider": item.provider, "model": item.model, "stage": item.stage}
+                for item in queue
+            ],
+        )
+        return self._provider_router.warm()
+
+    def validate_model_availability(self) -> LLMGenerationResult:
+        return self._provider_router.validate_model_availability()
 
     def generate_json(
         self,
@@ -107,12 +85,16 @@ class LLMService:
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         started = time()
-        effective_max_tokens = max(1, min(int(max_tokens or settings.max_output_tokens), 900))
-        effective_model = self._effective_model_for_attempt(attempt)
+        effective_max_tokens = max(1, min(int(max_tokens or settings.max_output_tokens), _MAX_COMPLETION_TOKENS))
+        retry_queue = self._provider_router.retry_queue()
+        if not retry_queue:
+            raise RuntimeError("No configured LLM provider is available.")
         request_metadata = LLMRequestMetadata(
             estimated_tokens=estimate_tokens(system, user),
             max_tokens=effective_max_tokens,
             prompt_chars=len(system) + len(user),
+            system_chars=len(system),
+            user_chars=len(user),
         )
         log_pipeline_stage(
             logger,
@@ -124,10 +106,29 @@ class LLMService:
             status="completed",
             estimated_tokens=request_metadata.estimated_tokens,
             prompt_chars=request_metadata.prompt_chars,
+            system_chars=request_metadata.system_chars,
+            user_chars=request_metadata.user_chars,
             max_tokens=request_metadata.max_tokens,
             **(metadata or {}),
         )
-        try:
+        last_exc: Exception | None = None
+        for provider_attempt_index, provider_attempt in enumerate(retry_queue, start=1):
+            if provider_attempt_index > 1:
+                log_pipeline_stage(
+                    logger,
+                    "LLM_FALLBACK",
+                    audit_id=audit_id,
+                    document_id=document_id,
+                    domain=domain,
+                    started_at=time(),
+                    status="selected",
+                    provider=provider_attempt.provider,
+                    model=provider_attempt.model,
+                    fallback_stage=provider_attempt.stage,
+                    provider_attempt=provider_attempt_index,
+                    analysis_attempt=attempt,
+                    **(metadata or {}),
+                )
             log_pipeline_stage(
                 logger,
                 "LLM_REQUEST",
@@ -136,240 +137,120 @@ class LLMService:
                 domain=domain,
                 started_at=started,
                 status="started",
-                provider=settings.llm_provider_normalized,
-                model=effective_model,
+                provider=provider_attempt.provider,
+                model=provider_attempt.model,
                 attempt=attempt,
+                provider_attempt=provider_attempt_index,
+                fallback_stage=provider_attempt.stage,
                 prompt_chars=request_metadata.prompt_chars,
+                system_chars=request_metadata.system_chars,
+                user_chars=request_metadata.user_chars,
                 estimated_tokens=request_metadata.estimated_tokens,
                 max_tokens=request_metadata.max_tokens,
                 **(metadata or {}),
             )
-            content = self._generate_content(
-                system=system,
-                user=user,
-                max_tokens=request_metadata.max_tokens,
-                attempt=attempt,
-                audit_id=audit_id,
-                document_id=document_id,
-                domain=domain,
-            )
-            payload = parse_json_response(
-                content,
-                audit_id=audit_id,
-                document_id=document_id,
-                domain=domain,
-            )
-            log_pipeline_stage(
-                logger,
-                "LLM_REQUEST",
-                audit_id=audit_id,
-                document_id=document_id,
-                domain=domain,
-                started_at=started,
-                status="completed",
-                provider=settings.llm_provider_normalized,
-                model=effective_model,
-                attempt=attempt,
-                max_tokens=request_metadata.max_tokens,
-            )
-            return payload
-        except Exception as exc:
-            log_pipeline_stage(
-                logger,
-                "LLM_REQUEST",
-                audit_id=audit_id,
-                document_id=document_id,
-                domain=domain,
-                started_at=started,
-                status="failed",
-                provider=settings.llm_provider_normalized,
-                model=effective_model,
-                attempt=attempt,
-                max_tokens=request_metadata.max_tokens,
-                retryable=is_retryable_llm_error(exc),
-                error=str(exc),
-            )
-            logger.warning(
-                "llm.error provider=%s model=%s attempt=%s max_tokens=%s detail=%s",
-                settings.llm_provider_normalized,
-                effective_model,
-                attempt,
-                request_metadata.max_tokens,
-                exc,
-            )
-            raise
-
-    def _generate_content(
-        self,
-        *,
-        system: str,
-        user: str,
-        max_tokens: int,
-        attempt: int,
-        audit_id: str | None,
-        document_id: str | None,
-        domain: str | None,
-    ) -> str:
-        if settings.llm_provider_normalized in {"openrouter", "groq"}:
-            response = self.client.chat.completions.create(
-                model=settings.llm_model,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                temperature=0.1,
-                max_tokens=max_tokens,
-                response_format={"type": "json_object"},
-            )
-            return response.choices[0].message.content or "{}"
-
-        if settings.llm_provider_normalized in {"gemini", "google", "google-gemini"}:
-            return self._generate_gemini_content(
-                system=system,
-                user=user,
-                max_tokens=max_tokens,
-                attempt=attempt,
-                audit_id=audit_id,
-                document_id=document_id,
-                domain=domain,
-            )
-
-        raise RuntimeError(f"Unsupported LLM provider: {settings.llm_provider}")
-
-    def _generate_gemini_content(
-        self,
-        *,
-        system: str,
-        user: str,
-        max_tokens: int,
-        attempt: int,
-        audit_id: str | None,
-        document_id: str | None,
-        domain: str | None,
-    ) -> str:
-        if not settings.gemini_api_key:
-            raise RuntimeError("GEMINI_API_KEY is required when LLM_PROVIDER=gemini.")
-        model = self._gemini_model_for_attempt(attempt)
-        if model != str(settings.gemini_model):
-            log_pipeline_stage(
-                logger,
-                "LLM_MODEL_FALLBACK",
-                audit_id=audit_id,
-                document_id=document_id,
-                domain=domain,
-                started_at=time(),
-                status="selected",
-                from_model=settings.gemini_model,
-                model=model,
-                attempt=attempt,
-            )
-
-        url = self._gemini_generate_url(model=model)
-        generation_config = self._gemini_generation_config(model=model, max_tokens=max_tokens)
-
-        payload = {
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"text": f"{system.strip()}\n\n{user.strip()}"}],
-                }
-            ],
-            "generationConfig": generation_config,
-        }
-        for request_attempt in range(1, 3):
-            request = Request(
-                url,
-                data=json.dumps(payload).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
             try:
-                with urlopen(request, timeout=settings.llm_timeout_seconds) as response:
-                    raw = response.read().decode("utf-8")
-                break
-            except HTTPError as exc:
-                detail = exc.read().decode("utf-8", errors="replace")
-                if exc.code == 503 and request_attempt == 1:
-                    sleep_seconds = 5 * max(1, attempt)
+                generation = self._provider_router.generate(
+                    attempt=provider_attempt,
+                    system=system,
+                    user=user,
+                    max_tokens=request_metadata.max_tokens,
+                )
+                payload = parse_json_response(
+                    generation.content,
+                    audit_id=audit_id,
+                    document_id=document_id,
+                    domain=domain,
+                )
+                log_pipeline_stage(
+                    logger,
+                    "LLM_REQUEST",
+                    audit_id=audit_id,
+                    document_id=document_id,
+                    domain=domain,
+                    started_at=started,
+                    status="completed",
+                    provider=provider_attempt.provider,
+                    model=provider_attempt.model,
+                    attempt=attempt,
+                    provider_attempt=provider_attempt_index,
+                    fallback_stage=provider_attempt.stage,
+                    max_tokens=request_metadata.max_tokens,
+                    prompt_tokens=generation.usage.get("prompt_tokens"),
+                    completion_tokens=generation.usage.get("completion_tokens"),
+                    total_tokens=generation.usage.get("total_tokens"),
+                )
+                return payload
+            except Exception as exc:
+                last_exc = exc
+                retryable = is_retryable_llm_error(exc)
+                has_next = provider_attempt_index < len(retry_queue)
+                log_pipeline_stage(
+                    logger,
+                    "LLM_REQUEST",
+                    audit_id=audit_id,
+                    document_id=document_id,
+                    domain=domain,
+                    started_at=started,
+                    status="failed",
+                    provider=provider_attempt.provider,
+                    model=provider_attempt.model,
+                    attempt=attempt,
+                    provider_attempt=provider_attempt_index,
+                    fallback_stage=provider_attempt.stage,
+                    max_tokens=request_metadata.max_tokens,
+                    retryable=retryable,
+                    error=str(exc),
+                )
+                logger.warning(
+                    "llm.error provider=%s model=%s attempt=%s provider_attempt=%s max_tokens=%s retryable=%s detail=%s",
+                    provider_attempt.provider,
+                    provider_attempt.model,
+                    attempt,
+                    provider_attempt_index,
+                    request_metadata.max_tokens,
+                    retryable,
+                    exc,
+                )
+                if has_next and retryable:
+                    next_attempt = retry_queue[provider_attempt_index]
+                    sleep_seconds = self._backoff_seconds(provider_attempt_index)
                     log_pipeline_stage(
                         logger,
-                        "LLM_REQUEST",
+                        "LLM_RETRY_QUEUE",
                         audit_id=audit_id,
                         document_id=document_id,
                         domain=domain,
                         started_at=time(),
-                        status="retry_backoff",
-                        provider=settings.llm_provider_normalized,
-                        model=model,
+                        status="scheduled",
+                        from_provider=provider_attempt.provider,
+                        from_model=provider_attempt.model,
+                        next_provider=next_attempt.provider,
+                        next_model=next_attempt.model,
+                        next_stage=next_attempt.stage,
                         attempt=attempt,
-                        request_attempt=request_attempt,
-                        http_status=503,
+                        provider_attempt=provider_attempt_index,
                         sleep_seconds=sleep_seconds,
+                        error=str(exc),
                     )
                     sleep(sleep_seconds)
                     continue
-                raise LLMHTTPError(
-                    f"Gemini HTTP {exc.code}: {detail[:500]}",
-                    status_code=exc.code,
-                    detail=detail,
-                ) from exc
-            except URLError as exc:
-                raise RuntimeError(f"Gemini request failed: {exc}") from exc
-        else:
-            raise RuntimeError("Gemini request failed without a response.")
+                raise
 
-        response_payload = json.loads(raw)
-        candidates = response_payload.get("candidates") or []
-        if not candidates:
-            raise RuntimeError(f"Gemini returned no candidates: {raw[:500]}")
-        parts = (((candidates[0] or {}).get("content") or {}).get("parts") or [])
-        text = "".join(str(part.get("text") or "") for part in parts if isinstance(part, dict)).strip()
-        if not text:
-            raise RuntimeError(f"Gemini returned empty content: {raw[:500]}")
-        return text
-
-    def _effective_model_for_attempt(self, attempt: int) -> str | None:
-        if settings.llm_provider_normalized in {"gemini", "google", "google-gemini"}:
-            return self._gemini_model_for_attempt(attempt)
-        return settings.llm_model
+        raise last_exc or RuntimeError("LLM request failed without an exception.")
 
     @staticmethod
-    def _gemini_model_for_attempt(attempt: int) -> str:
-        primary_model = str(settings.gemini_model or "").strip()
-        fallback_model = str(settings.gemini_fallback_model or "").strip()
-        if (
-            attempt >= 3
-            and primary_model == "gemini-2.5-flash-lite"
-            and fallback_model
-            and fallback_model != primary_model
-        ):
-            return fallback_model
-        return primary_model
+    def _backoff_seconds(provider_attempt_index: int) -> float:
+        base = max(0.1, float(settings.llm_retry_backoff_seconds or 1.0))
+        return round(min(30.0, base * (2 ** max(provider_attempt_index - 1, 0))), 2)
 
-    @staticmethod
-    def _gemini_generation_config(*, model: str, max_tokens: int) -> dict[str, Any]:
-        generation_config: dict[str, Any] = {
-            "temperature": 0.1,
-            "maxOutputTokens": max_tokens,
-            "responseMimeType": "application/json",
-        }
-        if model.startswith("gemini-2.5"):
-            generation_config["thinkingConfig"] = {"thinkingBudget": 0}
-        return generation_config
 
-    @staticmethod
-    def _gemini_generate_url(*, model: str) -> str:
-        base_url = str(settings.gemini_api_url or "").rstrip("/")
-        if "{model}" in base_url:
-            endpoint = base_url.format(model=model)
-        elif base_url.endswith(":generateContent"):
-            endpoint = base_url
-        elif base_url.endswith("/models"):
-            endpoint = f"{base_url}/{model}:generateContent"
-        else:
-            endpoint = f"{base_url.rstrip('/')}/models/{model}:generateContent"
-        separator = "&" if "?" in endpoint else "?"
-        return f"{endpoint}{separator}{urlencode({'key': settings.gemini_api_key})}"
+def _provider_display_name(provider: str) -> str:
+    return {
+        "openrouter": "OpenRouter",
+        "groq": "Groq",
+        "gemini": "Gemini",
+    }.get(provider, provider)
 
 
 def estimate_tokens(*parts: str) -> int:
@@ -390,6 +271,40 @@ def parse_json_response(
     started = time()
     cleaned = clean_json_response(content)
     raw_output_path: str | None = None
+    try:
+        fast_payload = json.loads(cleaned)
+    except json.JSONDecodeError:
+        fast_payload = None
+    else:
+        if isinstance(fast_payload, dict):
+            validate_json_payload(
+                fast_payload,
+                audit_id=audit_id,
+                document_id=document_id,
+                domain=domain,
+                started_at=started,
+                output_chars=len(content or ""),
+                cleaned_chars=len(cleaned),
+                repaired_chars=len(cleaned),
+                raw_content=content,
+                cleaned_content=cleaned,
+                repaired_content=cleaned,
+            )
+            log_pipeline_stage(
+                logger,
+                "JSON_PARSE",
+                audit_id=audit_id,
+                document_id=document_id,
+                domain=domain,
+                started_at=started,
+                status="completed",
+                keys=sorted(fast_payload.keys()),
+                output_chars=len(content or ""),
+                cleaned_chars=len(cleaned),
+                repaired_chars=len(cleaned),
+                repair_applied=False,
+            )
+            return fast_payload
     try:
         repaired = repair_json(cleaned)
     except Exception as exc:
@@ -680,6 +595,9 @@ def is_retryable_llm_error(exc: Exception | None) -> bool:
         "503",
         "insufficient credits",
         "rate limit",
+        "high demand",
+        "model unavailable",
+        "overloaded",
         "timeout",
         "timed out",
         "temporarily unavailable",

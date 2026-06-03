@@ -41,11 +41,15 @@ class BatchDocumentResponse(BaseModel):
     document_id: str | None
     audit_id: str | None
     filename: str
+    content_type: str | None = None
+    file_size_bytes: int = 0
     title: str
     domain: str | None
     queue_position: int
     status: str
     current_stage: str | None = None
+    retry_count: int = 0
+    max_retries: int = 0
     error_message: str | None
     processing_time_seconds: float | None
     started_at: datetime | None
@@ -63,8 +67,12 @@ class UploadBatchResponse(BaseModel):
     total_documents: int
     completed_documents: int
     failed_documents: int
+    processed_documents: int = 0
+    pending_documents: int = 0
+    progress_label: str | None = None
     running_document: str | None
     error_message: str | None
+    summary_report: dict | None = None
     started_at: datetime | None
     completed_at: datetime | None
     created_at: datetime

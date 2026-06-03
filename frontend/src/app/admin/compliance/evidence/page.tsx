@@ -3,6 +3,7 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { FileSearch, FileUp } from "lucide-react";
 import Link from "next/link";
+import { useMemo } from "react";
 import { EmptyState } from "@/components/dashboard/EmptyState";
 import { ErrorState } from "@/components/dashboard/ErrorState";
 import { PageHeader } from "@/components/dashboard/PageHeader";
@@ -31,23 +32,35 @@ export default function AdminEvidencePage() {
   const auditsQuery = useQuery({ queryKey: ["audits"], queryFn: listAudits });
   const documentsQuery = useQuery({ queryKey: ["admin-documents"], queryFn: listAdminDocuments });
   const reportsQuery = useQuery({ queryKey: ["admin-reports"], queryFn: listAdminReports });
-  const completedAudits = (auditsQuery.data ?? []).filter((audit) => audit.status === "completed");
+  const completedAudits = useMemo(
+    () => (auditsQuery.data ?? []).filter((audit) => audit.status === "completed"),
+    [auditsQuery.data],
+  );
+  const evidenceQueryConfigs = useMemo(
+    () =>
+      completedAudits.map((audit) => ({
+        queryKey: ["evidence", audit.id],
+        queryFn: () => getEvidence(audit.id),
+        enabled: Boolean(audit.id),
+        staleTime: 60_000,
+        gcTime: 5 * 60_000,
+      })),
+    [completedAudits],
+  );
   const evidenceQueries = useQueries({
-    queries: completedAudits.map((audit) => ({
-      queryKey: ["evidence", audit.id],
-      queryFn: () => getEvidence(audit.id),
-      enabled: Boolean(audit.id),
-    })),
+    queries: evidenceQueryConfigs,
   });
 
-  const documentsById = new Map((documentsQuery.data?.uploaded_documents ?? []).map((document) => [document.id, document]));
-  const reportsByAuditId = new Map(((reportsQuery.data ?? []) as AdminReport[]).map((report) => [report.audit_id, report]));
-  const rows: EvidenceRow[] = completedAudits.map((audit, index) => ({
-    audit,
-    document: documentsById.get(audit.document_id) ?? null,
-    report: reportsByAuditId.get(audit.id) ?? null,
-    evidenceCount: evidenceQueries[index]?.data?.length ?? 0,
-  }));
+  const rows: EvidenceRow[] = useMemo(() => {
+    const documentsById = new Map((documentsQuery.data?.uploaded_documents ?? []).map((document) => [document.id, document]));
+    const reportsByAuditId = new Map(((reportsQuery.data ?? []) as AdminReport[]).map((report) => [report.audit_id, report]));
+    return completedAudits.map((audit, index) => ({
+      audit,
+      document: documentsById.get(audit.document_id) ?? null,
+      report: reportsByAuditId.get(audit.id) ?? null,
+      evidenceCount: evidenceQueries[index]?.data?.length ?? 0,
+    }));
+  }, [completedAudits, documentsQuery.data, evidenceQueries, reportsQuery.data]);
   const evidenceError = evidenceQueries.find((query) => query.error)?.error;
   const loading =
     auditsQuery.isLoading ||

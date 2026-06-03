@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from backend.app.db.models.audit import AuditReport, AuditRun, EvidenceLink, Finding
+from backend.app.db.models.audit import AuditReport, AuditRun, ComplianceScoreDiagnostic, EvidenceLink, Finding
 from backend.app.db.models.document import UploadedDocument
 from backend.app.db.models.user import User
 from backend.app.db.session import SessionLocal
@@ -94,10 +94,31 @@ class AuditService:
 
     def get_report(self, *, db: Session, user: User, audit_id: str) -> AuditReport:
         self.get_audit(db=db, user=user, audit_id=audit_id)
-        report = db.scalar(select(AuditReport).where(AuditReport.audit_id == audit_id))
+        report = db.scalar(
+            select(AuditReport)
+            .where(AuditReport.audit_id == audit_id)
+            .order_by(AuditReport.created_at.desc()),
+        )
         if report is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
         return report
+
+    def get_score_diagnostics(
+        self,
+        *,
+        db: Session,
+        user: User,
+        audit_id: str,
+    ) -> ComplianceScoreDiagnostic:
+        self.get_audit(db=db, user=user, audit_id=audit_id)
+        diagnostics = db.scalar(
+            select(ComplianceScoreDiagnostic)
+            .where(ComplianceScoreDiagnostic.audit_id == audit_id)
+            .order_by(ComplianceScoreDiagnostic.created_at.desc()),
+        )
+        if diagnostics is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Score diagnostics not found.")
+        return diagnostics
 
     def get_report_by_id_or_audit_id(self, *, db: Session, user: User, id_or_audit_id: str) -> AuditReport:
         report = db.scalar(select(AuditReport).where(AuditReport.id == id_or_audit_id))

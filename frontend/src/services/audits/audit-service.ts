@@ -16,6 +16,9 @@ export async function listAudits() {
 
 export async function getAudit(auditId: string) {
   const { data } = await apiClient.get<Audit>(`/audits/${auditId}`);
+  if (process.env.NODE_ENV === "development") {
+    console.log("Audit Status Response", data);
+  }
   return data;
 }
 
@@ -30,7 +33,7 @@ export async function getEvidence(auditId: string) {
 }
 
 export async function getReport(auditId: string) {
-  const { data } = await apiClient.get<AuditReport>(`/audit/report/${auditId}`);
+  const { data } = await apiClient.get<AuditReport>(`/audits/${auditId}/report`);
   return data;
 }
 

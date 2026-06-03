@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import json
 from dataclasses import asdict, dataclass
 from time import time
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from qdrant_client.models import PointIdsList, PointStruct
@@ -17,6 +14,7 @@ from backend.app.core.logging import get_logger
 from backend.app.db.session import engine
 from backend.app.rag.indexing.qdrant_store import qdrant_store
 from backend.app.rag.indexing.embeddings import embedding_service
+from backend.app.services.llm_service import llm_service
 from backend.app.storage.s3_client import s3_storage
 
 logger = get_logger(__name__)
@@ -211,73 +209,30 @@ def s3_health(*, roundtrip: bool = True) -> DependencyHealth:
 def llm_health() -> DependencyHealth:
     started = time()
     provider = settings.llm_provider_normalized
-    if provider not in {"openrouter", "groq", "gemini", "google", "google-gemini"}:
-        return DependencyHealth(
-            status="unhealthy",
-            detail=f"Unsupported LLM provider: {settings.llm_provider}.",
-        )
-
-    key_name, base_url_name, model_name = _llm_env_names(provider)
+    key_name, base_url_name, model_name = settings.provider_env_names(provider)
+    missing = []
     if not settings.llm_api_key:
-        return DependencyHealth(status="unhealthy", detail=f"{key_name} is not configured.")
+        missing.append(key_name)
     if not settings.llm_base_url:
-        return DependencyHealth(status="unhealthy", detail=f"{base_url_name} is not configured.")
+        missing.append(base_url_name)
     if not settings.llm_model:
-        return DependencyHealth(status="unhealthy", detail=f"{model_name} is not configured.")
-
-    if provider in {"gemini", "google", "google-gemini"}:
-        return DependencyHealth(
-            status="connected",
-            latency_ms=_latency(started),
-            metadata={"provider": provider, "model": settings.llm_model, "remote_check": False},
-        )
-
+        missing.append(model_name)
+    if missing:
+        return DependencyHealth(status="unhealthy", detail=f"Missing LLM configuration: {', '.join(missing)}.")
     try:
-        payload = {
-            "model": settings.llm_model,
-            "messages": [{"role": "user", "content": "Reply with OK"}],
-            "max_tokens": 16,
-            "temperature": 0,
-        }
-        headers = {
-            "Authorization": f"Bearer {settings.llm_api_key}",
-            "Content-Type": "application/json",
-        }
-        if provider == "openrouter":
-            headers.update(
-                {
-                    "HTTP-Referer": "http://localhost:3000",
-                    "X-Title": settings.app_name,
-                },
-            )
-        request = Request(
-            f"{settings.llm_base_url.rstrip('/')}/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers=headers,
-            method="POST",
-        )
-        with urlopen(request, timeout=30) as response:
-            if response.status >= 400:
-                return DependencyHealth(status="unhealthy", latency_ms=_latency(started), detail=f"LLM returned HTTP {response.status}.")
-            body = json.loads(response.read().decode("utf-8"))
-            choices = body.get("choices") or []
-            reply = choices[0].get("message", {}).get("content") if choices else None
+        result = llm_service.validate_model_availability()
         return DependencyHealth(
             status="connected",
             latency_ms=_latency(started),
-            metadata={"provider": provider, "model": settings.llm_model, "reply_preview": _safe_error(reply or "")},
+            metadata={
+                "provider": provider,
+                "model": settings.llm_model,
+                "fallback_model_configured": bool(settings.llm_fallback_model),
+                "secondary_provider": settings.secondary_llm_provider_normalized,
+                "reply_preview": _safe_error(result.content),
+                "usage": result.usage,
+            },
         )
-    except HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        logger.exception("LLM health check returned HTTP error")
-        return DependencyHealth(
-            status="unhealthy",
-            latency_ms=_latency(started),
-            detail=f"LLM returned HTTP {exc.code}: {_safe_error(body)}",
-        )
-    except URLError as exc:
-        logger.exception("LLM health check failed")
-        return DependencyHealth(status="unhealthy", latency_ms=_latency(started), detail=_safe_error(exc.reason))
     except Exception as exc:
         logger.exception("LLM health check failed")
         return DependencyHealth(status="unhealthy", latency_ms=_latency(started), detail=_safe_error(exc))
@@ -350,11 +305,3 @@ def _safe_error(exc: object) -> str:
         return text[:297] + "..."
     return text
 
-
-def _llm_env_names(provider: str) -> tuple[str, str, str]:
-    prefix = provider.upper()
-    if provider == "openrouter":
-        prefix = "OPENROUTER"
-    if provider in {"gemini", "google", "google-gemini"}:
-        return "GEMINI_API_KEY", "GEMINI_API_URL", "GEMINI_MODEL"
-    return f"{prefix}_API_KEY", f"{prefix}_BASE_URL", f"{prefix}_MODEL"

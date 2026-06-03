@@ -6,6 +6,7 @@ from backend.app.db.models.user import User
 from backend.app.db.session import get_db
 from backend.app.schemas.audit import (
     AuditResponse,
+    ComplianceScoreDiagnosticResponse,
     CreateAuditRequest,
     EvidenceResponse,
     FindingResponse,
@@ -71,6 +72,15 @@ def get_report(
     current_user: User = Depends(get_current_user),
 ) -> ReportResponse:
     return audit_service.get_report(db=db, user=current_user, audit_id=audit_id)
+
+
+@router.get("/{audit_id}/diagnostics", response_model=ComplianceScoreDiagnosticResponse)
+def get_score_diagnostics(
+    audit_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ComplianceScoreDiagnosticResponse:
+    return audit_service.get_score_diagnostics(db=db, user=current_user, audit_id=audit_id)
 
 
 @compat_router.post("/run", response_model=AuditResponse)

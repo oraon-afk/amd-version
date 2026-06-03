@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Float, ForeignKey, JSON, String, Text, Uuid
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.session import Base
@@ -74,6 +74,21 @@ class AuditReport(Base):
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     report_payload: Mapped[dict] = mapped_column(JSON, nullable=False)
     report_json_s3_uri: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ComplianceScoreDiagnostic(Base):
+    __tablename__ = "compliance_score_diagnostics"
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=new_uuid)
+    audit_id: Mapped[str] = mapped_column(ForeignKey("audit_runs.id"), index=True, nullable=False)
+    report_id: Mapped[str | None] = mapped_column(ForeignKey("audit_reports.id"), index=True, nullable=True)
+    rules_evaluated: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    rules_matched: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    rules_failed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    match_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    score_reasoning: Mapped[str] = mapped_column(Text, nullable=False)
+    diagnostics_payload: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 

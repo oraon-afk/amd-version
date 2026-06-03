@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/clean-dev.cjs",
+    "dev:next": "next dev --turbo --disable-source-maps",
+    "clean-dev": "node scripts/clean-dev.cjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

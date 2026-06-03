@@ -144,6 +144,21 @@ class ReportResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ComplianceScoreDiagnosticResponse(BaseModel):
+    id: str
+    audit_id: str
+    report_id: str | None
+    rules_evaluated: int
+    rules_matched: int
+    rules_failed: int
+    match_confidence: float | None
+    score_reasoning: str
+    diagnostics_payload: dict[str, Any]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 def _read_number(payload: dict[str, Any], *keys: str) -> float | None:
     for key in keys:
         value = payload.get(key)

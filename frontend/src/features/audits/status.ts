@@ -13,23 +13,48 @@ export type WorkflowStage =
   | "failed";
 
 export function getWorkflowStage(audit?: Audit | null, document?: UploadedDocument | null): WorkflowStage | null {
-  if (audit?.status === "failed" || document?.status === "failed" || document?.upload_status === "failed") {
-    return "failed";
+  const stage =
+    mapStatus(audit?.status) ??
+    mapStatus(document?.processing_stage) ??
+    mapStatus(document?.status) ??
+    mapStatus(document?.upload_status);
+  if (process.env.NODE_ENV === "development") {
+    console.log("Mapped Stage", stage);
   }
-  if (audit?.status === "completed" || document?.status === "completed") return "completed";
-  if (audit?.status === "generating_report") return "generating_report";
-  if (audit?.status === "analyzing" || audit?.status === "validating") return "analyzing";
-  if (audit?.status === "reranking") return "reranking";
-  if (audit?.status === "retrieving_rules") return "retrieving_rules";
-  if (audit?.status === "embedding") return "embedding";
-  if (audit?.status === "chunking") return "chunking";
-  if (audit?.status === "extracting" || audit?.status === "processing") return "extracting";
-  if (audit?.status === "uploaded" || document?.status === "uploaded" || document?.upload_status === "uploaded") {
+  return stage;
+}
+
+export function isAuditActive(status?: string | null) {
+  const normalized = normalizeStatus(status);
+  return Boolean(normalized && !["completed", "failed"].includes(normalized));
+}
+
+function mapStatus(status?: string | null): WorkflowStage | null {
+  const normalized = normalizeStatus(status);
+  if (!normalized) return null;
+  if (normalized === "failed" || normalized === "error") return "failed";
+  if (normalized === "completed" || normalized === "complete") return "completed";
+  if (normalized === "generating_report" || normalized === "reporting" || normalized === "report_generation") {
+    return "generating_report";
+  }
+  if (normalized === "analyzing" || normalized === "validating" || normalized === "llm_analysis" || normalized === "compliance_analysis") {
+    return "analyzing";
+  }
+  if (normalized === "reranking") return "reranking";
+  if (normalized === "retrieving_rules" || normalized === "retrieving" || normalized === "retrieval") {
+    return "retrieving_rules";
+  }
+  if (normalized === "embedding" || normalized === "embedded") return "embedding";
+  if (normalized === "chunking" || normalized === "chunked") return "chunking";
+  if (normalized === "extracting" || normalized === "extraction" || normalized === "processing" || normalized === "running") {
+    return "extracting";
+  }
+  if (normalized === "uploaded" || normalized === "uploading" || normalized === "queued" || normalized === "pending" || normalized === "created") {
     return "uploaded";
   }
   return null;
 }
 
-export function isAuditActive(status?: string | null) {
-  return Boolean(status && !["completed", "failed", "expired"].includes(status));
+function normalizeStatus(status?: string | null) {
+  return String(status ?? "").trim().toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
 }

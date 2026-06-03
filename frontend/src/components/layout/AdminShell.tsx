@@ -2,14 +2,17 @@
 
 import {
   BarChart3,
+  ClipboardList,
   Database,
   FileClock,
   FileSearch,
   FileText,
   FolderUp,
+  Gauge,
   LayoutDashboard,
   ListChecks,
   LogOut,
+  ScrollText,
   Settings,
   ShieldCheck,
   Users,
@@ -28,17 +31,6 @@ const adminSections = [
     links: [{ href: "/admin", label: "Dashboard", icon: LayoutDashboard }],
   },
   {
-    label: "Compliance Center",
-    links: [
-      { href: "/admin/compliance/upload", label: "Upload Audit Document", icon: FolderUp },
-      { href: "/admin/compliance/bulk-upload", label: "Bulk Audit Upload", icon: FolderUp },
-      { href: "/admin/compliance/audits", label: "Audit History", icon: FileClock },
-      { href: "/admin/compliance/findings", label: "Findings", icon: ListChecks },
-      { href: "/admin/compliance/evidence", label: "Evidence", icon: FileSearch },
-      { href: "/admin/compliance/reports", label: "Reports", icon: ShieldCheck },
-    ],
-  },
-  {
     label: "Rule Management",
     links: [
       { href: "/admin/rules", label: "Upload Rule", icon: FileText },
@@ -47,6 +39,21 @@ const adminSections = [
       { href: "/admin/rules/domains", label: "Domains", icon: Database },
       { href: "/admin/rules/versions", label: "Versions", icon: FileText },
     ],
+  },
+  {
+    label: "Compliance Intelligence",
+    links: [
+      { href: "/admin/compliance/upload", label: "Compliance Checks", icon: FolderUp },
+      { href: "/admin/compliance/bulk-upload", label: "Bulk Checks", icon: ClipboardList },
+      { href: "/admin/compliance/audits", label: "Audit History", icon: FileClock },
+      { href: "/admin/compliance/findings", label: "Findings", icon: ListChecks },
+      { href: "/admin/compliance/evidence", label: "Evidence", icon: FileSearch },
+      { href: "/admin/compliance/reports", label: "Reports", icon: ScrollText },
+    ],
+  },
+  {
+    label: "Digital Twin",
+    links: [{ href: "/admin/digital-twin", label: "Compliance Twin", icon: Gauge }],
   },
   {
     label: "Administration",
@@ -99,10 +106,10 @@ export function AdminShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
       <div className="lg:pl-72">
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-line bg-background/86 px-4 backdrop-blur-xl md:px-6">
-          <div>
+        <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-line bg-background/86 px-4 py-3 backdrop-blur-xl md:px-6">
+          <div className="min-w-0">
             <div className="text-xs uppercase text-muted">Administration</div>
-            <div className="text-sm font-semibold md:text-base">Rule Management, Compliance Checks, Users, and Storage</div>
+            <div className="break-words text-sm font-semibold md:text-base">Rule Management, Compliance Intelligence, Users, and Storage</div>
           </div>
           <div className="flex items-center gap-2">
             <Link href="/admin/rules">
@@ -124,7 +131,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
             ))}
           </div>
         </div>
-        <main className="p-4 md:p-6 xl:p-8">{children}</main>
+        <main className="min-w-0 p-4 md:p-6 xl:p-8">{children}</main>
       </div>
     </div>
   );

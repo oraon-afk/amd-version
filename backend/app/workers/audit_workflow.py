@@ -19,6 +19,7 @@ from backend.app.db.models.audit import (
     AuditReport,
     AuditResult,
     AuditRun,
+    ComplianceScoreDiagnostic,
     EvidenceLink,
     Finding,
     ReportRecord,
@@ -326,6 +327,13 @@ class AuditWorkflow:
         report_uri = None
         markdown_uri = None
         payload = dict(report.payload)
+        score_diagnostics = self._score_diagnostics(
+            retrieval=retrieval,
+            analysis=analysis,
+            drafts=drafts,
+            payload=payload,
+        )
+        payload["score_diagnostics"] = score_diagnostics
 
         s3_started = time()
         try:
@@ -388,6 +396,18 @@ class AuditWorkflow:
         )
         db.add(audit_report)
         db.flush()
+        db.add(
+            ComplianceScoreDiagnostic(
+                audit_id=audit.id,
+                report_id=audit_report.id,
+                rules_evaluated=score_diagnostics["rules_evaluated"],
+                rules_matched=score_diagnostics["rules_matched"],
+                rules_failed=score_diagnostics["rules_failed"],
+                match_confidence=score_diagnostics["match_confidence"],
+                score_reasoning=score_diagnostics["score_reasoning"],
+                diagnostics_payload=score_diagnostics,
+            ),
+        )
         db.add(
             ReportRecord(
                 id=audit_report.id,
@@ -683,6 +703,63 @@ class AuditWorkflow:
                     ],
                 )
         return "\n".join(lines)
+
+    @staticmethod
+    def _score_diagnostics(
+        *,
+        retrieval: RetrievalOutput,
+        analysis: ComplianceAnalysis,
+        drafts: list[FindingDraft],
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        scores = [float(result.score or 0.0) for result in retrieval.results]
+        threshold = float(settings.semantic_similarity_threshold or 0.0)
+        rules_evaluated = len(retrieval.results)
+        rules_matched = sum(1 for score in scores if score >= threshold)
+        rules_failed = len(drafts)
+        match_confidence = round(sum(scores) / len(scores), 4) if scores else None
+        compliance_score = payload.get("compliance_score", analysis.compliance_score)
+        if not retrieval.results:
+            reasoning = "Score is low because no compliance rules were retrieved for the selected domain/rule set."
+        elif rules_failed:
+            reasoning = (
+                f"Score reflects {rules_failed} failed rule(s) from {rules_evaluated} evaluated rule candidate(s)."
+            )
+        else:
+            reasoning = (
+                f"Score reflects {rules_matched} matched rule candidate(s) and no persisted findings."
+            )
+        return {
+            "rules_evaluated": rules_evaluated,
+            "rules_matched": rules_matched,
+            "rules_failed": rules_failed,
+            "match_confidence": match_confidence,
+            "compliance_score": compliance_score,
+            "score_reasoning": reasoning,
+            "context_ready": retrieval.has_enough_context,
+            "retrieval_query_chars": len(retrieval.query or ""),
+            "rule_matches": [
+                {
+                    "chunk_id": result.chunk_id,
+                    "point_id": result.point_id,
+                    "score": round(float(result.score or 0.0), 4),
+                    "domain": (result.payload or {}).get("domain"),
+                    "citation": (result.payload or {}).get("citation_label") or (result.payload or {}).get("source"),
+                }
+                for result in retrieval.results
+            ],
+            "failed_rules": [
+                {
+                    "violated_rule": draft.violated_rule,
+                    "severity": draft.severity,
+                    "confidence_score": draft.confidence_score,
+                    "match_confidence": round(float(draft.rule_result.score or 0.0), 4),
+                    "overlap_score": round(float(draft.overlap_score or 0.0), 4),
+                    "reason": draft.explanation,
+                }
+                for draft in drafts
+            ],
+        }
 
     @staticmethod
     def _document_domain(*, db: Session, document_id: str) -> str | None:

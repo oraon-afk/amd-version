@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, XCircle } from "lucide-react";
-import { createContext, ReactNode, useCallback, useContext, useState } from "react";
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 type Toast = {
   id: string;
@@ -19,17 +19,29 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const timeoutIds = useRef<Set<number>>(new Set());
+
+  useEffect(() => {
+    return () => {
+      timeoutIds.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      timeoutIds.current.clear();
+    };
+  }, []);
 
   const toast = useCallback((next: Omit<Toast, "id">) => {
     const id = crypto.randomUUID();
     setToasts((items) => [...items, { ...next, id }]);
-    window.setTimeout(() => {
+    const timeoutId = window.setTimeout(() => {
+      timeoutIds.current.delete(timeoutId);
       setToasts((items) => items.filter((item) => item.id !== id));
     }, 4200);
+    timeoutIds.current.add(timeoutId);
   }, []);
 
+  const value = useMemo(() => ({ toast }), [toast]);
+
   return (
-    <ToastContext.Provider value={{ toast }}>
+    <ToastContext.Provider value={value}>
       {children}
       <div className="fixed right-4 top-4 z-50 flex w-[min(380px,calc(100vw-2rem))] flex-col gap-3">
         <AnimatePresence>
@@ -64,4 +76,3 @@ export function useToast() {
   if (!context) throw new Error("useToast must be used within ToastProvider");
   return context;
 }
-

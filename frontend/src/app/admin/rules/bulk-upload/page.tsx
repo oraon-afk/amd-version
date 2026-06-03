@@ -34,7 +34,10 @@ export default function BulkRuleUploadPage() {
     queryKey: ["rule-upload-batch", batchId],
     queryFn: () => getRuleUploadBatch(batchId!),
     enabled: Boolean(batchId),
-    refetchInterval: 2000,
+    refetchInterval: (query) => {
+      const status = (query.state.data as { status?: string } | undefined)?.status;
+      return status && terminalStatuses.has(status) ? false : 2000;
+    },
   });
   const batch = batchQuery.data;
 
@@ -199,10 +202,11 @@ export default function BulkRuleUploadPage() {
                   <Metric label="Progress" value={`${progress}%`} />
                 </div>
                 <Progress value={progress} />
-                <div className="text-sm text-muted">
-                  Current: {isRunning ? batch.running_document ?? "Next rule document" : "Rule batch finished"}
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted">
+                  <span>{batch.progress_label ?? `Processed ${completed} / ${batch.total_documents}`}</span>
+                  <span>Current: {isRunning ? batch.running_document ?? "Next rule document" : "Rule batch finished"}</span>
                 </div>
-                <div className="space-y-2">
+                <div className="max-h-[560px] space-y-2 overflow-y-auto pr-1">
                   {batch.documents.map((item) => (
                     <div key={item.id} className="rounded-lg border border-line bg-elevated p-3">
                       <div className="flex flex-wrap items-center justify-between gap-3">

@@ -45,6 +45,10 @@ export type ComplianceRulePayload = {
   version: string;
 };
 
+export type ComplianceRuleUpdatePayload = Partial<ComplianceRulePayload> & {
+  status?: "active" | "archived";
+};
+
 export async function listAdminUsers() {
   const { data } = await apiClient.get<User[]>("/admin/users");
   return data;
@@ -118,6 +122,21 @@ export async function listComplianceRules() {
 
 export async function createComplianceRule(payload: ComplianceRulePayload) {
   const { data } = await apiClient.post<ComplianceRule>("/admin/compliance-rules", payload);
+  return data;
+}
+
+export async function updateComplianceRule(ruleId: string, payload: ComplianceRuleUpdatePayload) {
+  const { data } = await apiClient.patch<ComplianceRule>(`/admin/compliance-rules/${ruleId}`, payload);
+  return data;
+}
+
+export async function archiveComplianceRule(ruleId: string) {
+  const { data } = await apiClient.post<ComplianceRule>(`/admin/compliance-rules/${ruleId}/archive`);
+  return data;
+}
+
+export async function deleteComplianceRule(ruleId: string) {
+  const { data } = await apiClient.delete<{ status: string; id: string }>(`/admin/compliance-rules/${ruleId}`);
   return data;
 }
 

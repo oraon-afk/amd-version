@@ -78,7 +78,7 @@ export function RegisterForm() {
   return (
     <motion.form
       onSubmit={handleSubmit(onSubmit)}
-      initial={{ opacity: 0, y: 16 }}
+      initial={false}
       animate={{ opacity: 1, y: 0 }}
       className="glass-panel neon-border w-full max-w-2xl rounded-2xl p-6 sm:p-8"
     >

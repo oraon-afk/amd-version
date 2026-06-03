@@ -43,6 +43,7 @@ class ComplianceRule(Base):
     rule_text: Mapped[str] = mapped_column(Text, nullable=False)
     reference: Mapped[str | None] = mapped_column(String(512), nullable=True)
     version: Mapped[str] = mapped_column(String(50), default="v1", nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="active", index=True, nullable=False)
     created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

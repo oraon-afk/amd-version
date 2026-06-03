@@ -51,7 +51,7 @@ export function LoginForm() {
   return (
     <motion.form
       onSubmit={handleSubmit(onSubmit)}
-      initial={{ opacity: 0, y: 16 }}
+      initial={false}
       animate={{ opacity: 1, y: 0 }}
       className="glass-panel w-full max-w-[31rem] rounded-lg p-6 sm:p-8"
     >

@@ -4,10 +4,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { AlertCircle, CheckCircle2, Circle, FileText, FileUp, Loader2, UploadCloud, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { getAudit } from "@/features/audits/api";
@@ -42,9 +43,22 @@ export function UploadDropzone({
   const [uploadedDocument, setUploadedDocument] = useState<UploadedDocument | null>(null);
   const [latestAudit, setLatestAudit] = useState<Audit | null>(null);
   const [auditRunning, setAuditRunning] = useState(false);
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   const domainsQuery = useQuery({ queryKey: ["compliance-domains"], queryFn: listComplianceDomains });
   const domains = domainsQuery.data ?? [];
+  const domainOptions = domains.map((item) => ({
+    value: item.name,
+    label: item.name,
+    description: item.description,
+  }));
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -64,29 +78,36 @@ export function UploadDropzone({
         setAuditRunning(true);
         onAuditUpdate?.(audit);
 
-        completedAudit = await waitForAuditCompletion(audit.id, (nextAudit) => {
-          setLatestAudit(nextAudit);
-          onAuditUpdate?.(nextAudit);
-        });
+        completedAudit = await waitForAuditCompletion(
+          audit.id,
+          (nextAudit) => {
+            if (!isMounted.current) return;
+            setLatestAudit(nextAudit);
+            onAuditUpdate?.(nextAudit);
+          },
+          () => isMounted.current,
+        );
       }
       setAuditRunning(false);
       if (!completedAudit) throw new Error("No assessment was created.");
       return completedAudit;
     },
     onSuccess: (audit) => {
+      const auditStatus = normalizeWorkflowStatus(audit.status);
       setFiles([]);
       setText("");
       setTitle("");
       queryClient.invalidateQueries({ queryKey: ["audits"] });
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       queryClient.invalidateQueries({ queryKey: ["report", audit.id] });
+      queryClient.invalidateQueries({ queryKey: ["compliance-digital-twin"] });
       toast({
-        title: audit.status === "failed" ? "Assessment failed" : "Assessment completed",
-        description: audit.status === "failed" ? audit.error_message ?? "Backend analysis failed." : "Compliance results generated from backend analysis.",
-        variant: audit.status === "failed" ? "error" : "success",
+        title: auditStatus === "failed" ? "Assessment failed" : "Assessment completed",
+        description: auditStatus === "failed" ? audit.error_message ?? "Backend analysis failed." : "Compliance results generated from backend analysis.",
+        variant: auditStatus === "failed" ? "error" : "success",
       });
       onAuditComplete?.(audit);
-      if (audit.status === "completed" && redirectOnComplete) router.push(`/dashboard/reports/${audit.id}`);
+      if (auditStatus === "completed" && redirectOnComplete) router.push(`/dashboard/reports/${audit.id}`);
     },
     onError: (error) => {
       setAuditRunning(false);
@@ -113,21 +134,15 @@ export function UploadDropzone({
           </label>
           <label className="block text-sm font-medium">
             Domain
-            <select
+            <SearchableSelect
               value={domain}
-              onChange={(event) => setDomain(event.target.value)}
+              onChange={setDomain}
+              options={domainOptions}
+              placeholder={domainsQuery.isLoading ? "Loading domains" : "Select domain"}
               disabled={domainsQuery.isLoading || domains.length === 0}
-              className="mt-2 h-11 w-full rounded-lg border border-line bg-panel px-3 text-sm outline-none transition focus:border-primary/70 disabled:opacity-60"
-            >
-              <option value="">
-                {domainsQuery.isLoading ? "Loading domains" : "Select domain"}
-              </option>
-              {domains.map((item) => (
-                <option key={item.id ?? item.name} value={item.name}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
+              className="mt-2"
+              ariaLabel="Compliance domain"
+            />
           </label>
         </div>
 
@@ -204,7 +219,7 @@ export function UploadDropzone({
           uploaded={Boolean(uploadedDocument)}
           audit={latestAudit}
           running={auditRunning || mutation.isPending}
-          failed={latestAudit?.status === "failed" || Boolean(mutation.error)}
+          failed={normalizeWorkflowStatus(latestAudit?.status) === "failed" || Boolean(mutation.error)}
         />
 
         {(uploadedDocument || latestAudit || auditRunning) && (
@@ -240,7 +255,7 @@ function AuditWorkflowChecklist({
   running: boolean;
   failed: boolean;
 }) {
-  const status = audit?.status ?? null;
+  const status = normalizeWorkflowStatus(audit?.status);
   const completed = status === "completed";
   return (
     <div className="space-y-2 rounded-lg border border-line bg-black/15 p-3">
@@ -317,19 +332,27 @@ function titleFromFile(fileName: string, index: number) {
   return title || `Document ${index + 1}`;
 }
 
-async function waitForAuditCompletion(auditId: string, onUpdate: (audit: Audit) => void) {
+async function waitForAuditCompletion(
+  auditId: string,
+  onUpdate: (audit: Audit) => void,
+  isActive: () => boolean,
+) {
   const terminalStatuses = new Set(["completed", "failed"]);
-  for (let attempt = 0; attempt < 180; attempt += 1) {
+  while (isActive()) {
+    if (!isActive()) throw new Error("Assessment polling stopped because the upload view was closed.");
     await sleep(1000);
+    if (!isActive()) throw new Error("Assessment polling stopped because the upload view was closed.");
     const audit = await getAudit(auditId);
     onUpdate(audit);
-    if (terminalStatuses.has(audit.status)) return audit;
+    if (terminalStatuses.has(normalizeWorkflowStatus(audit.status))) return audit;
   }
-  throw new Error("Assessment is still running after 3 minutes. Check Compliance Results for the latest status.");
+  throw new Error("Assessment polling stopped because the upload view was closed.");
 }
 
 function isAtLeast(status: string | null, target: string) {
-  if (status === "completed") return true;
+  const normalizedStatus = normalizeWorkflowStatus(status);
+  const normalizedTarget = normalizeWorkflowStatus(target);
+  if (normalizedStatus === "completed") return true;
   const order = [
     "uploaded",
     "processing",
@@ -342,8 +365,19 @@ function isAtLeast(status: string | null, target: string) {
     "analyzing",
     "generating_report",
   ];
-  if (!status) return false;
-  return order.indexOf(status) >= order.indexOf(target);
+  if (!normalizedStatus) return false;
+  return order.indexOf(normalizedStatus) >= order.indexOf(normalizedTarget);
+}
+
+function normalizeWorkflowStatus(status?: string | null) {
+  const normalized = String(status ?? "").trim().toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
+  if (normalized === "complete") return "completed";
+  if (normalized === "error") return "failed";
+  if (normalized === "retrieving" || normalized === "retrieval") return "retrieving_rules";
+  if (normalized === "reporting" || normalized === "report_generation") return "generating_report";
+  if (normalized === "llm_analysis" || normalized === "compliance_analysis") return "analyzing";
+  if (normalized === "extraction" || normalized === "running") return "processing";
+  return normalized;
 }
 
 function sleep(ms: number) {

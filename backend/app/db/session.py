@@ -114,6 +114,31 @@ def _ensure_incremental_columns() -> None:
         },
         "batch_documents": {
             "domain": "VARCHAR(100)",
+            "content_type": "VARCHAR(120) DEFAULT 'application/octet-stream'",
+            "staging_path": "VARCHAR(1024)",
+            "file_size_bytes": "INTEGER DEFAULT 0",
+            "retry_count": "INTEGER DEFAULT 0",
+            "max_retries": "INTEGER DEFAULT 2",
+            "last_error_at": "TIMESTAMP",
+        },
+        "upload_batches": {
+            "processed_documents": "INTEGER DEFAULT 0",
+            "summary_report": "JSON",
+        },
+        "rule_upload_batches": {
+            "processed_documents": "INTEGER DEFAULT 0",
+            "summary_report": "JSON",
+        },
+        "rule_upload_batch_items": {
+            "content_type": "VARCHAR(120) DEFAULT 'application/octet-stream'",
+            "staging_path": "VARCHAR(1024)",
+            "file_size_bytes": "INTEGER DEFAULT 0",
+            "retry_count": "INTEGER DEFAULT 0",
+            "max_retries": "INTEGER DEFAULT 2",
+            "last_error_at": "TIMESTAMP",
+        },
+        "compliance_rules": {
+            "status": "VARCHAR(50) DEFAULT 'active'",
         },
     }
     with engine.begin() as connection:

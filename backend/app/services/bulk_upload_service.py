@@ -10,6 +10,7 @@ from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.app.core.config import settings
 from backend.app.core.logging import get_logger, log_pipeline_stage
 from backend.app.db.models.batch import BatchDocument, RuleUploadBatch, RuleUploadBatchItem, UploadBatch
 from backend.app.db.models.document import UploadedDocument
@@ -24,7 +25,9 @@ from backend.app.workers.audit_workflow import audit_workflow
 
 
 logger = get_logger(__name__)
-MAX_BULK_DOCUMENTS = 100
+MAX_BULK_DOCUMENTS = 2000
+BULK_READ_CHUNK_SIZE = 1024 * 1024
+DEFAULT_MAX_RETRIES = 2
 
 
 @dataclass(frozen=True)
@@ -32,7 +35,8 @@ class RuleBatchFile:
     item_id: str
     filename: str
     content_type: str
-    content: bytes
+    staging_path: str
+    file_size_bytes: int
 
 
 class BulkComplianceUploadService:
@@ -90,48 +94,51 @@ class BulkComplianceUploadService:
             title = _title_from_filename(filename, index)
             file_domain = domain_by_file[index - 1]
             try:
-                content = await file.read()
-                document = document_service.upload_document_bytes(
-                    db=db,
-                    user=user,
-                    title=title,
-                    domain=file_domain,
-                    content=content,
-                    filename=filename,
-                    content_type=file.content_type or "application/octet-stream",
-                    source_type="file",
-                    initial_status="queued",
-                )
                 item = BatchDocument(
                     batch_id=batch.id,
-                    document_id=document.id,
-                    filename=document.filename,
-                    title=document.title,
+                    filename=_safe_queue_filename(filename),
+                    content_type=file.content_type or "application/octet-stream",
+                    title=title,
                     domain=file_domain,
                     status="queued",
+                    max_retries=DEFAULT_MAX_RETRIES,
                 )
                 db.add(item)
+                db.flush()
+                staging_path, file_size_bytes = await _stage_upload_file(
+                    file=file,
+                    batch_id=batch.id,
+                    item_id=item.id,
+                    filename=filename,
+                )
+                item.staging_path = staging_path
+                item.file_size_bytes = file_size_bytes
                 log_pipeline_stage(
                     logger,
                     "BULK_UPLOAD_FILE",
                     audit_id=None,
-                    document_id=document.id,
+                    document_id=None,
                     domain=file_domain,
                     started_at=file_started,
                     status="queued",
                     batch_id=batch.id,
-                    filename=document.filename,
+                    filename=item.filename,
+                    file_size_bytes=file_size_bytes,
                 )
             except Exception as exc:
                 batch.failed_documents += 1
+                batch.processed_documents += 1
                 db.add(
                     BatchDocument(
                         batch_id=batch.id,
                         filename=filename,
+                        content_type=file.content_type or "application/octet-stream",
                         title=title,
                         domain=file_domain,
                         status="failed",
+                        max_retries=DEFAULT_MAX_RETRIES,
                         error_message=str(exc),
+                        last_error_at=datetime.utcnow(),
                         completed_at=datetime.utcnow(),
                         processing_time_seconds=round(time() - file_started, 4),
                     ),
@@ -152,6 +159,7 @@ class BulkComplianceUploadService:
         batch.status = "queued" if batch.failed_documents < batch.total_documents else "failed"
         if batch.status == "failed":
             batch.completed_at = datetime.utcnow()
+            batch.summary_report = _upload_batch_summary(db=db, batch=batch)
         db.commit()
         db.refresh(batch)
         return batch
@@ -187,75 +195,13 @@ class BulkComplianceUploadService:
                 return
 
             for item in items:
-                item_started = time()
-                document = db.get(UploadedDocument, item.document_id) if item.document_id else None
-                batch.running_document = item.filename
-                item.status = "processing"
-                item.started_at = datetime.utcnow()
-                db.commit()
-                log_pipeline_stage(
-                    logger,
-                    "BULK_UPLOAD_FILE",
-                    audit_id=None,
-                    document_id=item.document_id,
-                    domain=document.domain if document else None,
-                    started_at=item_started,
-                    status="processing",
-                    batch_id=batch.id,
-                    filename=item.filename,
+                self._process_item_with_retries(
+                    db=db,
+                    batch=batch,
+                    item=item,
+                    user=user,
+                    rule_set_id=rule_set_id,
                 )
-
-                try:
-                    if document is None:
-                        raise RuntimeError("Uploaded document metadata was not found.")
-                    audit = audit_service.create_audit(
-                        db=db,
-                        user=user,
-                        payload=CreateAuditRequest(document_id=document.id, rule_set_id=rule_set_id),
-                    )
-                    item.audit_id = audit.id
-                    db.commit()
-                    audit = audit_workflow.run(db=db, audit_id=audit.id)
-                    db.refresh(audit)
-                    if audit.status == "failed":
-                        raise RuntimeError(audit.error_message or "Audit workflow failed.")
-                    item.status = "completed"
-                    item.completed_at = datetime.utcnow()
-                    item.processing_time_seconds = round(time() - item_started, 4)
-                    batch.completed_documents += 1
-                    log_pipeline_stage(
-                        logger,
-                        "BULK_UPLOAD_SUCCESS",
-                        audit_id=audit.id,
-                        document_id=document.id,
-                        domain=document.domain,
-                        started_at=item_started,
-                        status="completed",
-                        batch_id=batch.id,
-                        filename=item.filename,
-                        processing_time=item.processing_time_seconds,
-                    )
-                except Exception as exc:
-                    item.status = "failed"
-                    item.error_message = str(exc)
-                    item.completed_at = datetime.utcnow()
-                    item.processing_time_seconds = round(time() - item_started, 4)
-                    batch.failed_documents += 1
-                    log_pipeline_stage(
-                        logger,
-                        "BULK_UPLOAD_FAILED",
-                        audit_id=item.audit_id,
-                        document_id=item.document_id,
-                        domain=document.domain if document else None,
-                        started_at=item_started,
-                        status="failed",
-                        batch_id=batch.id,
-                        filename=item.filename,
-                        processing_time=item.processing_time_seconds,
-                        error=str(exc),
-                    )
-                finally:
-                    db.commit()
 
             self._finalize_batch(db=db, batch=batch)
 
@@ -268,14 +214,145 @@ class BulkComplianceUploadService:
     @staticmethod
     def _finalize_batch(*, db: Session, batch: UploadBatch) -> None:
         batch.running_document = None
+        batch.processed_documents = batch.completed_documents + batch.failed_documents
         if batch.failed_documents and batch.completed_documents:
-            batch.status = "completed_with_failures"
+            batch.status = "completed"
         elif batch.failed_documents >= batch.total_documents:
             batch.status = "failed"
         else:
             batch.status = "completed"
+        batch.summary_report = _upload_batch_summary(db=db, batch=batch)
         batch.completed_at = datetime.utcnow()
         db.commit()
+
+    def _process_item_with_retries(
+        self,
+        *,
+        db: Session,
+        batch: UploadBatch,
+        item: BatchDocument,
+        user: User,
+        rule_set_id: str | None,
+    ) -> None:
+        while item.retry_count <= item.max_retries:
+            item_started = time()
+            document = db.get(UploadedDocument, item.document_id) if item.document_id else None
+            batch.running_document = item.filename
+            item.status = "processing"
+            item.started_at = item.started_at or datetime.utcnow()
+            db.commit()
+            log_pipeline_stage(
+                logger,
+                "BULK_UPLOAD_FILE",
+                audit_id=item.audit_id,
+                document_id=item.document_id,
+                domain=item.domain or (document.domain if document else None),
+                started_at=item_started,
+                status="processing",
+                batch_id=batch.id,
+                filename=item.filename,
+                attempt=item.retry_count + 1,
+                max_retries=item.max_retries,
+            )
+            try:
+                document = self._ensure_uploaded_document(db=db, user=user, item=item, document=document)
+                audit = audit_service.create_audit(
+                    db=db,
+                    user=user,
+                    payload=CreateAuditRequest(document_id=document.id, rule_set_id=rule_set_id),
+                )
+                item.audit_id = audit.id
+                db.commit()
+                audit = audit_workflow.run(db=db, audit_id=audit.id)
+                db.refresh(audit)
+                if audit.status == "failed":
+                    raise RuntimeError(audit.error_message or "Audit workflow failed.")
+                item.status = "completed"
+                item.error_message = None
+                item.completed_at = datetime.utcnow()
+                item.processing_time_seconds = round(time() - item_started, 4)
+                batch.completed_documents += 1
+                batch.processed_documents = batch.completed_documents + batch.failed_documents
+                _cleanup_staged_file(item.staging_path)
+                log_pipeline_stage(
+                    logger,
+                    "BULK_UPLOAD_SUCCESS",
+                    audit_id=audit.id,
+                    document_id=document.id,
+                    domain=document.domain,
+                    started_at=item_started,
+                    status="completed",
+                    batch_id=batch.id,
+                    filename=item.filename,
+                    processing_time=item.processing_time_seconds,
+                    attempt=item.retry_count + 1,
+                )
+                db.commit()
+                return
+            except Exception as exc:
+                db.rollback()
+                item.error_message = str(exc)
+                item.last_error_at = datetime.utcnow()
+                item.processing_time_seconds = round(time() - item_started, 4)
+                log_pipeline_stage(
+                    logger,
+                    "BULK_UPLOAD_RETRY" if item.retry_count < item.max_retries else "BULK_UPLOAD_FAILED",
+                    audit_id=item.audit_id,
+                    document_id=item.document_id,
+                    domain=item.domain or (document.domain if document else None),
+                    started_at=item_started,
+                    status="retrying" if item.retry_count < item.max_retries else "failed",
+                    batch_id=batch.id,
+                    filename=item.filename,
+                    processing_time=item.processing_time_seconds,
+                    attempt=item.retry_count + 1,
+                    max_retries=item.max_retries,
+                    error=str(exc),
+                )
+                if item.retry_count < item.max_retries:
+                    item.retry_count += 1
+                    item.status = "queued"
+                    db.commit()
+                    continue
+
+                item.status = "failed"
+                item.completed_at = datetime.utcnow()
+                batch.failed_documents += 1
+                batch.processed_documents = batch.completed_documents + batch.failed_documents
+                _cleanup_staged_file(item.staging_path)
+                db.commit()
+                return
+
+    @staticmethod
+    def _ensure_uploaded_document(
+        *,
+        db: Session,
+        user: User,
+        item: BatchDocument,
+        document: UploadedDocument | None,
+    ) -> UploadedDocument:
+        if document is not None:
+            return document
+        if not item.staging_path:
+            raise RuntimeError("Queued file is missing its staging path.")
+        staged_file = Path(item.staging_path)
+        if not staged_file.exists():
+            raise RuntimeError("Queued file was not found in staging storage.")
+        content = staged_file.read_bytes()
+        document = document_service.upload_document_bytes(
+            db=db,
+            user=user,
+            title=item.title,
+            domain=item.domain or "",
+            content=content,
+            filename=item.filename,
+            content_type=item.content_type or "application/octet-stream",
+            source_type="file",
+            initial_status="processing",
+        )
+        item.document_id = document.id
+        db.commit()
+        return document
 
 
 class BulkRuleUploadService:
@@ -288,6 +365,11 @@ class BulkRuleUploadService:
     ) -> tuple[RuleUploadBatch, list[RuleBatchFile]]:
         if not files:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Upload at least one rule document.")
+        if len(files) > MAX_BULK_DOCUMENTS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Bulk upload supports up to {MAX_BULK_DOCUMENTS} documents.",
+            )
 
         started = time()
         batch = RuleUploadBatch(
@@ -316,14 +398,26 @@ class BulkRuleUploadService:
             filename = file.filename or f"rule-document-{index}"
             try:
                 item = RuleUploadBatchItem(batch_id=batch.id, filename=filename, status="queued")
+                item.content_type = file.content_type or "application/octet-stream"
+                item.max_retries = DEFAULT_MAX_RETRIES
                 db.add(item)
                 db.flush()
+                staging_path, file_size_bytes = await _stage_upload_file(
+                    file=file,
+                    batch_id=batch.id,
+                    item_id=item.id,
+                    filename=filename,
+                    namespace="rule-batches",
+                )
+                item.staging_path = staging_path
+                item.file_size_bytes = file_size_bytes
                 batch_files.append(
                     RuleBatchFile(
                         item_id=item.id,
                         filename=filename,
                         content_type=file.content_type or "application/octet-stream",
-                        content=await file.read(),
+                        staging_path=staging_path,
+                        file_size_bytes=file_size_bytes,
                     ),
                 )
                 log_pipeline_stage(
@@ -336,15 +430,20 @@ class BulkRuleUploadService:
                     status="queued",
                     batch_id=batch.id,
                     filename=filename,
+                    file_size_bytes=file_size_bytes,
                 )
             except Exception as exc:
                 batch.failed_documents += 1
+                batch.processed_documents += 1
                 db.add(
                     RuleUploadBatchItem(
                         batch_id=batch.id,
                         filename=filename,
+                        content_type=file.content_type or "application/octet-stream",
                         status="failed",
+                        max_retries=DEFAULT_MAX_RETRIES,
                         error_message=str(exc),
+                        last_error_at=datetime.utcnow(),
                         completed_at=datetime.utcnow(),
                     ),
                 )
@@ -368,7 +467,7 @@ class BulkRuleUploadService:
         self,
         *,
         batch_id: str,
-        files: list[RuleBatchFile],
+        files: list[RuleBatchFile] | None = None,
         user_id: str,
         rule_set_id: str,
         domain: str | None = None,
@@ -389,33 +488,92 @@ class BulkRuleUploadService:
             batch.started_at = batch.started_at or datetime.utcnow()
             db.commit()
 
+            if files is None:
+                queued_items = list(
+                    db.scalars(
+                        select(RuleUploadBatchItem)
+                        .where(RuleUploadBatchItem.batch_id == batch_id, RuleUploadBatchItem.status == "queued")
+                        .order_by(RuleUploadBatchItem.created_at.asc()),
+                    ),
+                )
+                files = [
+                    RuleBatchFile(
+                        item_id=item.id,
+                        filename=item.filename,
+                        content_type=item.content_type,
+                        staging_path=item.staging_path or "",
+                        file_size_bytes=item.file_size_bytes,
+                    )
+                    for item in queued_items
+                ]
+
             for index, batch_file in enumerate(files):
-                item_started = time()
                 item = db.get(RuleUploadBatchItem, batch_file.item_id)
                 if item is None:
                     continue
                 file_domain = _value_at(domains, index) or domain
                 file_category = _value_at(categories, index) or category
-                batch.running_document = batch_file.filename
-                item.status = "processing"
-                item.started_at = datetime.utcnow()
-                db.commit()
-                log_pipeline_stage(
-                    logger,
-                    "BULK_RULE_UPLOAD_FILE",
-                    audit_id=None,
-                    document_id=None,
-                    domain=file_domain or file_category,
-                    started_at=item_started,
-                    status="processing",
-                    batch_id=batch.id,
-                    filename=batch_file.filename,
+                self._process_rule_item_with_retries(
+                    db=db,
+                    batch=batch,
+                    item=item,
+                    batch_file=batch_file,
+                    user=user,
+                    rule_set_id=rule_set_id,
+                    file_domain=file_domain,
+                    file_category=file_category,
+                    jurisdiction=jurisdiction,
+                    document_type=document_type,
+                    version=version,
                 )
-                try:
-                    rule_document = rule_service.upload_and_index_rule_bytes(
+
+            self._finalize_batch(db=db, batch=batch)
+
+    def _process_rule_item_with_retries(
+        self,
+        *,
+        db: Session,
+        batch: RuleUploadBatch,
+        item: RuleUploadBatchItem,
+        batch_file: RuleBatchFile,
+        user: User,
+        rule_set_id: str,
+        file_domain: str | None,
+        file_category: str | None,
+        jurisdiction: str | None,
+        document_type: str,
+        version: str,
+    ) -> None:
+        while item.retry_count <= item.max_retries:
+            item_started = time()
+            batch.running_document = batch_file.filename
+            item.status = "processing"
+            item.started_at = item.started_at or datetime.utcnow()
+            db.commit()
+            log_pipeline_stage(
+                logger,
+                "BULK_RULE_UPLOAD_FILE",
+                audit_id=None,
+                document_id=None,
+                domain=file_domain or file_category,
+                started_at=item_started,
+                status="processing",
+                batch_id=batch.id,
+                filename=batch_file.filename,
+                attempt=item.retry_count + 1,
+                max_retries=item.max_retries,
+            )
+            try:
+                if not batch_file.staging_path:
+                    raise RuntimeError("Queued rule file is missing its staging path.")
+                staged_file = Path(batch_file.staging_path)
+                if not staged_file.exists():
+                    raise RuntimeError("Queued rule file was not found in staging storage.")
+                content = staged_file.read_bytes()
+                rule_document = rule_service.upload_and_index_rule_bytes(
                         db=db,
                         user=user,
-                        content=batch_file.content,
+                        content=content,
                         filename=batch_file.filename,
                         content_type=batch_file.content_type,
                         rule_set_id=rule_set_id,
@@ -424,47 +582,62 @@ class BulkRuleUploadService:
                         jurisdiction=jurisdiction,
                         document_type=document_type,
                         version=version,
-                    )
-                    item.rule_document_id = rule_document.id
-                    item.status = "completed"
-                    item.completed_at = datetime.utcnow()
-                    item.processing_time_seconds = round(time() - item_started, 4)
-                    batch.completed_documents += 1
-                    log_pipeline_stage(
-                        logger,
-                        "BULK_RULE_UPLOAD_SUCCESS",
-                        audit_id=None,
-                        document_id=rule_document.id,
-                        domain=rule_document.domain,
-                        started_at=item_started,
-                        status="completed",
-                        batch_id=batch.id,
-                        filename=batch_file.filename,
-                        processing_time=item.processing_time_seconds,
-                    )
-                except Exception as exc:
-                    item.status = "failed"
-                    item.error_message = str(exc)
-                    item.completed_at = datetime.utcnow()
-                    item.processing_time_seconds = round(time() - item_started, 4)
-                    batch.failed_documents += 1
-                    log_pipeline_stage(
-                        logger,
-                        "BULK_RULE_UPLOAD_FAILED",
-                        audit_id=None,
-                        document_id=None,
-                        domain=file_domain or file_category,
-                        started_at=item_started,
-                        status="failed",
-                        batch_id=batch.id,
-                        filename=batch_file.filename,
-                        processing_time=item.processing_time_seconds,
-                        error=str(exc),
-                    )
-                finally:
+                )
+                item.rule_document_id = rule_document.id
+                item.status = "completed"
+                item.error_message = None
+                item.completed_at = datetime.utcnow()
+                item.processing_time_seconds = round(time() - item_started, 4)
+                batch.completed_documents += 1
+                batch.processed_documents = batch.completed_documents + batch.failed_documents
+                _cleanup_staged_file(item.staging_path)
+                log_pipeline_stage(
+                    logger,
+                    "BULK_RULE_UPLOAD_SUCCESS",
+                    audit_id=None,
+                    document_id=rule_document.id,
+                    domain=rule_document.domain,
+                    started_at=item_started,
+                    status="completed",
+                    batch_id=batch.id,
+                    filename=batch_file.filename,
+                    processing_time=item.processing_time_seconds,
+                    attempt=item.retry_count + 1,
+                )
+                db.commit()
+                return
+            except Exception as exc:
+                db.rollback()
+                item.error_message = str(exc)
+                item.last_error_at = datetime.utcnow()
+                item.processing_time_seconds = round(time() - item_started, 4)
+                log_pipeline_stage(
+                    logger,
+                    "BULK_RULE_UPLOAD_RETRY" if item.retry_count < item.max_retries else "BULK_RULE_UPLOAD_FAILED",
+                    audit_id=None,
+                    document_id=None,
+                    domain=file_domain or file_category,
+                    started_at=item_started,
+                    status="retrying" if item.retry_count < item.max_retries else "failed",
+                    batch_id=batch.id,
+                    filename=batch_file.filename,
+                    processing_time=item.processing_time_seconds,
+                    attempt=item.retry_count + 1,
+                    max_retries=item.max_retries,
+                    error=str(exc),
+                )
+                if item.retry_count < item.max_retries:
+                    item.retry_count += 1
+                    item.status = "queued"
                     db.commit()
-
-            self._finalize_batch(db=db, batch=batch)
+                    continue
+                item.status = "failed"
+                item.completed_at = datetime.utcnow()
+                batch.failed_documents += 1
+                batch.processed_documents = batch.completed_documents + batch.failed_documents
+                _cleanup_staged_file(item.staging_path)
+                db.commit()
+                return
 
     def get_batch(self, *, db: Session, batch_id: str) -> dict:
         batch = db.get(RuleUploadBatch, batch_id)
@@ -475,12 +648,14 @@ class BulkRuleUploadService:
     @staticmethod
     def _finalize_batch(*, db: Session, batch: RuleUploadBatch) -> None:
         batch.running_document = None
+        batch.processed_documents = batch.completed_documents + batch.failed_documents
         if batch.failed_documents and batch.completed_documents:
-            batch.status = "completed_with_failures"
+            batch.status = "completed"
         elif batch.failed_documents >= batch.total_documents:
             batch.status = "failed"
         else:
             batch.status = "completed"
+        batch.summary_report = _rule_batch_summary(db=db, batch=batch)
         batch.completed_at = datetime.utcnow()
         db.commit()
 
@@ -509,8 +684,12 @@ def _upload_batch_payload(*, db: Session, batch: UploadBatch) -> dict:
         "total_documents": batch.total_documents,
         "completed_documents": batch.completed_documents,
         "failed_documents": batch.failed_documents,
+        "processed_documents": batch.completed_documents + batch.failed_documents,
+        "pending_documents": max(batch.total_documents - (batch.completed_documents + batch.failed_documents), 0),
+        "progress_label": f"Processed {batch.completed_documents + batch.failed_documents} / {batch.total_documents}",
         "running_document": batch.running_document,
         "error_message": batch.error_message,
+        "summary_report": batch.summary_report,
         "started_at": batch.started_at,
         "completed_at": batch.completed_at,
         "created_at": batch.created_at,
@@ -521,11 +700,15 @@ def _upload_batch_payload(*, db: Session, batch: UploadBatch) -> dict:
                 "document_id": item.document_id,
                 "audit_id": item.audit_id,
                 "filename": item.filename,
+                "content_type": item.content_type,
+                "file_size_bytes": item.file_size_bytes,
                 "title": item.title,
                 "domain": item.domain or (documents.get(item.document_id or "").domain if item.document_id in documents else None),
                 "queue_position": index,
                 "status": _current_batch_status(item=item, document=documents.get(item.document_id or "")),
                 "current_stage": documents.get(item.document_id or "").processing_stage if item.document_id in documents else item.status,
+                "retry_count": item.retry_count,
+                "max_retries": item.max_retries,
                 "error_message": item.error_message,
                 "processing_time_seconds": item.processing_time_seconds,
                 "started_at": item.started_at,
@@ -553,8 +736,12 @@ def _rule_batch_payload(*, db: Session, batch: RuleUploadBatch) -> dict:
         "total_documents": batch.total_documents,
         "completed_documents": batch.completed_documents,
         "failed_documents": batch.failed_documents,
+        "processed_documents": batch.completed_documents + batch.failed_documents,
+        "pending_documents": max(batch.total_documents - (batch.completed_documents + batch.failed_documents), 0),
+        "progress_label": f"Processed {batch.completed_documents + batch.failed_documents} / {batch.total_documents}",
         "running_document": batch.running_document,
         "error_message": batch.error_message,
+        "summary_report": batch.summary_report,
         "started_at": batch.started_at,
         "completed_at": batch.completed_at,
         "created_at": batch.created_at,
@@ -564,7 +751,11 @@ def _rule_batch_payload(*, db: Session, batch: RuleUploadBatch) -> dict:
                 "batch_id": item.batch_id,
                 "rule_document_id": item.rule_document_id,
                 "filename": item.filename,
+                "content_type": item.content_type,
+                "file_size_bytes": item.file_size_bytes,
                 "status": item.status,
+                "retry_count": item.retry_count,
+                "max_retries": item.max_retries,
                 "error_message": item.error_message,
                 "processing_time_seconds": item.processing_time_seconds,
                 "started_at": item.started_at,
@@ -576,11 +767,71 @@ def _rule_batch_payload(*, db: Session, batch: RuleUploadBatch) -> dict:
     }
 
 
+def _upload_batch_summary(*, db: Session, batch: UploadBatch) -> dict:
+    items = list(
+        db.scalars(
+            select(BatchDocument)
+            .where(BatchDocument.batch_id == batch.id)
+            .order_by(BatchDocument.created_at.asc()),
+        ),
+    )
+    return {
+        "batch_id": batch.id,
+        "module": batch.module,
+        "status": batch.status,
+        "generated_at": datetime.utcnow().isoformat(),
+        "total_documents": batch.total_documents,
+        "processed_documents": batch.completed_documents + batch.failed_documents,
+        "completed_documents": batch.completed_documents,
+        "failed_documents": batch.failed_documents,
+        "documents": [
+            {
+                "filename": item.filename,
+                "document_id": item.document_id,
+                "audit_id": item.audit_id,
+                "domain": item.domain,
+                "status": item.status,
+                "retry_count": item.retry_count,
+                "error_message": item.error_message,
+                "processing_time_seconds": item.processing_time_seconds,
+            }
+            for item in items
+        ],
+    }
+
+
+def _rule_batch_summary(*, db: Session, batch: RuleUploadBatch) -> dict:
+    items = list(
+        db.scalars(
+            select(RuleUploadBatchItem)
+            .where(RuleUploadBatchItem.batch_id == batch.id)
+            .order_by(RuleUploadBatchItem.created_at.asc()),
+        ),
+    )
+    return {
+        "batch_id": batch.id,
+        "module": batch.module,
+        "status": batch.status,
+        "generated_at": datetime.utcnow().isoformat(),
+        "total_documents": batch.total_documents,
+        "processed_documents": batch.completed_documents + batch.failed_documents,
+        "completed_documents": batch.completed_documents,
+        "failed_documents": batch.failed_documents,
+        "documents": [
+            {
+                "filename": item.filename,
+                "rule_document_id": item.rule_document_id,
+                "status": item.status,
+                "retry_count": item.retry_count,
+                "error_message": item.error_message,
+                "processing_time_seconds": item.processing_time_seconds,
+            }
+            for item in items
+        ],
+    }
+
+
 def _current_batch_status(*, item: BatchDocument, document: UploadedDocument | None) -> str:
-    if item.status in {"completed", "failed"}:
-        return item.status
-    if document and document.processing_stage not in {"uploaded", "queued"}:
-        return document.processing_stage
     return item.status
 
 
@@ -588,6 +839,50 @@ def _title_from_filename(filename: str, index: int) -> str:
     title = Path(filename).name.replace("\\", "_").replace("/", "_")
     title = title.rsplit(".", 1)[0].strip()
     return title or f"Document {index}"
+
+
+def _safe_queue_filename(filename: str) -> str:
+    name = Path(filename).name.strip().replace("\\", "_").replace("/", "_")
+    return name or "queued-document"
+
+
+async def _stage_upload_file(
+    *,
+    file: UploadFile,
+    batch_id: str,
+    item_id: str,
+    filename: str,
+    namespace: str = "compliance-batches",
+) -> tuple[str, int]:
+    safe_filename = _safe_queue_filename(filename)
+    staging_dir = Path(settings.storage_root) / "queue" / namespace / batch_id
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    staging_path = staging_dir / f"{item_id}-{safe_filename}"
+    total_bytes = 0
+    with staging_path.open("wb") as output:
+        while True:
+            chunk = await file.read(BULK_READ_CHUNK_SIZE)
+            if not chunk:
+                break
+            total_bytes += len(chunk)
+            output.write(chunk)
+    return str(staging_path), total_bytes
+
+
+def _cleanup_staged_file(staging_path: str | None) -> None:
+    if not staging_path:
+        return
+    try:
+        path = Path(staging_path)
+        queue_root = (Path(settings.storage_root) / "queue").resolve()
+        resolved = path.resolve()
+        if queue_root not in resolved.parents:
+            logger.warning("Skipped staged file cleanup outside queue root: %s", staging_path)
+            return
+        if resolved.exists():
+            resolved.unlink()
+    except Exception:
+        logger.warning("Failed to clean staged bulk upload file: %s", staging_path, exc_info=True)
 
 
 def _resolve_per_file_values(

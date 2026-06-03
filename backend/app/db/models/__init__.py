@@ -1,5 +1,18 @@
-from backend.app.db.models.audit import AuditReport, AuditResult, AuditRun, EvidenceLink, Finding, ReportRecord
+from backend.app.db.models.audit import (
+    AuditReport,
+    AuditResult,
+    AuditRun,
+    ComplianceScoreDiagnostic,
+    EvidenceLink,
+    Finding,
+    ReportRecord,
+)
 from backend.app.db.models.batch import BatchDocument, RuleUploadBatch, RuleUploadBatchItem, UploadBatch
+from backend.app.db.models.digital_twin import (
+    ComplianceDigitalTwin,
+    ComplianceTwinPolicyProfile,
+    ComplianceTwinSnapshot,
+)
 from backend.app.db.models.document import ComplianceDomain, DocumentChunk, DocumentRecord, UploadedDocument
 from backend.app.db.models.log import AuditLog
 from backend.app.db.models.rule import ComplianceRule, RuleDocument
@@ -10,6 +23,10 @@ __all__ = [
     "AuditReport",
     "AuditResult",
     "ComplianceDomain",
+    "ComplianceDigitalTwin",
+    "ComplianceScoreDiagnostic",
+    "ComplianceTwinPolicyProfile",
+    "ComplianceTwinSnapshot",
     "DocumentRecord",
     "ComplianceRule",
     "DocumentChunk",

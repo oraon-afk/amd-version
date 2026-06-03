@@ -116,9 +116,9 @@ export function DataTable<T>({
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex flex-1 flex-col gap-3 sm:flex-row">
+    <div className="min-w-0 space-y-4">
+      <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row">
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
             <Input
@@ -182,8 +182,8 @@ export function DataTable<T>({
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-line bg-card/60">
-        <table className="w-full min-w-[860px] border-collapse text-sm">
+      <div className="max-w-full overflow-x-auto rounded-lg border border-line bg-card/60">
+        <table className="w-full min-w-[820px] table-fixed border-collapse text-sm">
           <thead className="bg-elevated">
             <tr className="border-b border-line text-left text-xs uppercase tracking-[0.14em] text-muted">
               {visibleColumnList.map((column) => (
@@ -204,8 +204,8 @@ export function DataTable<T>({
             {pageRows.map((row) => (
               <tr key={getRowId(row)} className="border-b border-line/70 transition hover:bg-elevated/70">
                 {visibleColumnList.map((column) => (
-                  <td key={column.id} className={cn("px-3 py-4 align-top", column.className)}>
-                    {column.cell(row)}
+                  <td key={column.id} className={cn("min-w-0 break-words px-3 py-4 align-top", column.className)}>
+                    <div className="min-w-0 overflow-hidden">{column.cell(row)}</div>
                   </td>
                 ))}
               </tr>

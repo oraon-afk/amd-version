@@ -1,6 +1,13 @@
 import asyncio
 from contextlib import asynccontextmanager, suppress
+from pathlib import Path
+import sys
 from time import time
+
+if __package__ == "app":
+    repo_root = str(Path(__file__).resolve().parents[2])
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,6 +31,7 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings.validate_startup_configuration()
     logger.info("Startup diagnostics: %s", startup_diagnostics())
     if settings.auto_create_tables:
         init_db()

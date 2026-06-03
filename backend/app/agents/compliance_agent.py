@@ -397,10 +397,10 @@ class ComplianceAgent:
         rule_context: list[dict[str, Any]],
         max_context_chars: int,
     ) -> str:
-        budget = max(1500, int(max_context_chars or settings.max_context_chars))
-        prompt_limit = budget + 2500
+        budget = max(1400, min(int(max_context_chars or settings.max_context_chars), 3000))
+        prompt_limit = 3760
         prompt = ""
-        for _ in range(4):
+        for _ in range(5):
             prompt = build_compliance_prompt(
                 domain=domain,
                 document_chunks=document_chunks,
@@ -409,8 +409,7 @@ class ComplianceAgent:
             )
             if len(prompt) <= prompt_limit:
                 return prompt
-            budget = max(1500, int(budget * 0.72))
-            prompt_limit = budget + 2500
+            budget = max(1400, int(budget * 0.72))
         return prompt
 
     @staticmethod
@@ -426,29 +425,29 @@ class ComplianceAgent:
 
     @staticmethod
     def _analysis_attempt_profiles() -> list[AnalysisAttemptProfile]:
-        max_context = max(1500, settings.max_context_chars)
-        max_tokens = max(1, min(settings.max_output_tokens, 2000))
+        max_context = max(1400, min(settings.max_context_chars, 3000))
+        max_tokens = max(1, min(settings.max_output_tokens, 700))
         profiles = [
             AnalysisAttemptProfile(
                 rule_candidate_limit=5,
                 chunk_limit=min(settings.llm_max_chunks, 5),
                 max_tokens=max_tokens,
                 max_context_chars=max_context,
-                text_char_limit=1500,
+                text_char_limit=900,
             ),
             AnalysisAttemptProfile(
                 rule_candidate_limit=3,
                 chunk_limit=min(settings.llm_max_chunks, 4),
-                max_tokens=min(max_tokens, 1200),
-                max_context_chars=min(max_context, 8000),
-                text_char_limit=1100,
+                max_tokens=min(max_tokens, 650),
+                max_context_chars=min(max_context, 2400),
+                text_char_limit=700,
             ),
             AnalysisAttemptProfile(
                 rule_candidate_limit=2,
                 chunk_limit=min(settings.llm_max_chunks, 3),
-                max_tokens=min(max_tokens, 800),
-                max_context_chars=min(max_context, 5000),
-                text_char_limit=800,
+                max_tokens=min(max_tokens, 600),
+                max_context_chars=min(max_context, 1800),
+                text_char_limit=550,
             ),
         ]
         return profiles[: max(1, min(settings.llm_retry_attempts, len(profiles)))]

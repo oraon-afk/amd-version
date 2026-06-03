@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 from time import time
 from typing import Any
+from uuid import NAMESPACE_URL, uuid5
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
-from qdrant_client.models import FieldCondition, Filter, MatchValue
+from qdrant_client.models import FieldCondition, Filter, MatchValue, PointIdsList
 from sqlalchemy import delete, false, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -49,6 +50,16 @@ class ComplianceRuleCreate(BaseModel):
     rule_text: str = Field(min_length=5)
     reference: str | None = None
     version: str = "v1"
+
+
+class ComplianceRuleUpdate(BaseModel):
+    category: str | None = Field(default=None, min_length=2, max_length=100)
+    title: str | None = Field(default=None, min_length=2, max_length=255)
+    description: str | None = None
+    rule_text: str | None = Field(default=None, min_length=5)
+    reference: str | None = None
+    version: str | None = None
+    status: str | None = None
 
 
 class RuleCategoryCreate(BaseModel):
@@ -436,26 +447,7 @@ def create_compliance_rule(
     db.add(rule)
     db.commit()
     db.refresh(rule)
-    qdrant_store.upsert_chunks(
-        collection_name=settings.qdrant_rule_collection,
-        chunks=[
-            {
-                "chunk_id": f"manual-rule:{rule.id}",
-                "document_id": rule.id,
-                "source_type": "compliance_rule",
-                "domain": payload.category.strip().lower().replace("_", "-"),
-                "category": payload.category,
-                "section": payload.title,
-                "section_title": payload.title,
-                "text": payload.rule_text,
-                "citation_label": payload.reference or payload.title,
-                "source": "manual_compliance_rule",
-                "role_type": "ADMIN",
-                "uploaded_by": current_user.id,
-            },
-        ],
-        embeddings=embedding_service.embed_texts([payload.rule_text]),
-    )
+    _upsert_manual_rule_vector(rule=rule, current_user=current_user)
     audit_log_service.log(
         db=db,
         user=current_user,
@@ -465,6 +457,76 @@ def create_compliance_rule(
         metadata={"category": rule.category},
     )
     return _compliance_rule_payload(rule)
+
+
+@router.patch("/compliance-rules/{rule_id}")
+def update_compliance_rule(
+    rule_id: str,
+    payload: ComplianceRuleUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> dict[str, Any]:
+    rule = db.get(ComplianceRule, rule_id)
+    if rule is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Compliance rule not found.")
+    updates = payload.model_dump(exclude_unset=True)
+    allowed_statuses = {"active", "archived"}
+    if "status" in updates and updates["status"] not in allowed_statuses:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Rule status must be active or archived.")
+    for key, value in updates.items():
+        setattr(rule, key, value)
+    db.commit()
+    db.refresh(rule)
+    _upsert_manual_rule_vector(
+        rule=rule,
+        current_user=current_user,
+        source_type="archived_compliance_rule" if rule.status == "archived" else "compliance_rule",
+    )
+    audit_log_service.log(
+        db=db,
+        user=current_user,
+        action="admin.compliance_rule.updated",
+        entity_type="compliance_rule",
+        entity_id=rule.id,
+        metadata={"status": rule.status, "version": rule.version},
+    )
+    return _compliance_rule_payload(rule)
+
+
+@router.post("/compliance-rules/{rule_id}/archive")
+def archive_compliance_rule(
+    rule_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> dict[str, Any]:
+    return update_compliance_rule(
+        rule_id=rule_id,
+        payload=ComplianceRuleUpdate(status="archived"),
+        db=db,
+        current_user=current_user,
+    )
+
+
+@router.delete("/compliance-rules/{rule_id}")
+def delete_compliance_rule(
+    rule_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> dict[str, Any]:
+    rule = db.get(ComplianceRule, rule_id)
+    if rule is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Compliance rule not found.")
+    _delete_manual_rule_vector(rule_id=rule.id)
+    db.delete(rule)
+    db.commit()
+    audit_log_service.log(
+        db=db,
+        user=current_user,
+        action="admin.compliance_rule.deleted",
+        entity_type="compliance_rule",
+        entity_id=rule_id,
+    )
+    return {"status": "deleted", "id": rule_id}
 
 
 @router.get("/rule-categories")
@@ -1045,10 +1107,53 @@ def _compliance_rule_payload(rule: ComplianceRule) -> dict[str, Any]:
         "rule_text": rule.rule_text,
         "reference": rule.reference,
         "version": rule.version,
+        "status": rule.status,
         "created_by": rule.created_by,
         "created_at": _dt(rule.created_at),
         "updated_at": _dt(rule.updated_at),
     }
+
+
+def _upsert_manual_rule_vector(
+    *,
+    rule: ComplianceRule,
+    current_user: User,
+    source_type: str = "compliance_rule",
+) -> None:
+    qdrant_store.upsert_chunks(
+        collection_name=settings.qdrant_rule_collection,
+        chunks=[
+            {
+                "chunk_id": f"manual-rule:{rule.id}",
+                "document_id": rule.id,
+                "source_type": source_type,
+                "domain": rule.category.strip().lower().replace("_", "-"),
+                "category": rule.category,
+                "section": rule.title,
+                "section_title": rule.title,
+                "text": rule.rule_text,
+                "citation_label": rule.reference or rule.title,
+                "source": "manual_compliance_rule",
+                "role_type": "ADMIN",
+                "uploaded_by": current_user.id,
+                "rule_status": rule.status,
+                "version": rule.version,
+            },
+        ],
+        embeddings=embedding_service.embed_texts([rule.rule_text]),
+    )
+
+
+def _delete_manual_rule_vector(*, rule_id: str) -> None:
+    point_id = str(uuid5(NAMESPACE_URL, f"manual-rule:{rule_id}"))
+    try:
+        qdrant_store.client.delete(
+            collection_name=settings.qdrant_rule_collection,
+            points_selector=PointIdsList(points=[point_id]),
+            wait=True,
+        )
+    except Exception:
+        logger.warning("Manual compliance rule vector delete failed for rule %s", rule_id, exc_info=True)
 
 
 def _log_payload(log: AuditLog) -> dict[str, Any]:

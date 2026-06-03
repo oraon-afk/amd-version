@@ -5,6 +5,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
+OPENROUTER_PROVIDER = "openrouter"
+GROQ_PROVIDER = "groq"
+GEMINI_PROVIDER = "gemini"
+GEMINI_PROVIDER_ALIASES = frozenset({"google", "google-gemini"})
+SUPPORTED_LLM_PROVIDERS = frozenset(
+    {OPENROUTER_PROVIDER, GROQ_PROVIDER, GEMINI_PROVIDER, *GEMINI_PROVIDER_ALIASES},
+)
+OPENAI_COMPATIBLE_PROVIDERS = frozenset({OPENROUTER_PROVIDER, GROQ_PROVIDER})
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -23,7 +32,7 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     cors_origins: str = "http://localhost:3000"
 
-    database_url: str = "sqlite:///./audit_compliance_local.db"
+    database_url: str = Field(validation_alias=AliasChoices("DATABASE_URL"))
 
     jwt_secret_key: str = "change-me"
     jwt_algorithm: str = "HS256"
@@ -55,13 +64,33 @@ class Settings(BaseSettings):
     qdrant_rule_collection: str = "compliance_rules"
     qdrant_upload_collection: str = "audit_document_chunks"
 
-    llm_provider: str = "openrouter"
+    llm_provider: str = Field(validation_alias=AliasChoices("LLM_PROVIDER"))
+    secondary_llm_provider: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SECONDARY_LLM_PROVIDER", "LLM_SECONDARY_PROVIDER", "FALLBACK_LLM_PROVIDER"),
+    )
 
     openrouter_api_key: str | None = None
-    openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    openrouter_model: str = "openai/gpt-4.1-mini"
+    openrouter_base_url: str | None = None
+    openrouter_model: str | None = None
+    openrouter_fallback_model: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("OPENROUTER_FALLBACK_MODEL", "LLM_FALLBACK_MODEL", "FALLBACK_LLM_MODEL"),
+    )
+    openrouter_http_referer: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("OPENROUTER_HTTP_REFERER", "OPENROUTER_SITE_URL"),
+    )
+    openrouter_app_title: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("OPENROUTER_APP_TITLE", "OPENROUTER_APP_NAME"),
+    )
     llm_timeout_seconds: int = 45
     llm_retry_attempts: int = 3
+    llm_retry_backoff_seconds: float = Field(
+        default=1.0,
+        validation_alias=AliasChoices("LLM_RETRY_BACKOFF_SECONDS", "LLM_BACKOFF_SECONDS"),
+    )
     max_output_tokens: int = Field(
         default=900,
         validation_alias=AliasChoices("MAX_OUTPUT_TOKENS", "LLM_MAX_OUTPUT_TOKENS"),
@@ -80,13 +109,15 @@ class Settings(BaseSettings):
     )
 
     groq_api_key: str | None = None
-    groq_base_url: str = "https://api.groq.com/openai/v1"
-    groq_model: str = "llama-3.3-70b-versatile"
+    groq_base_url: str | None = None
+    groq_model: str | None = None
+    groq_fallback_model: str | None = None
 
     gemini_api_key: str | None = None
-    gemini_api_url: str = "https://generativelanguage.googleapis.com/v1beta/models"
-    gemini_model: str = "gemini-2.5-flash-lite"
-    gemini_fallback_model: str | None = "gemini-2.0-flash"
+    gemini_api_url: str | None = None
+    gemini_model: str | None = None
+    gemini_fallback_model: str | None = None
+    gemini_thinking_budget: int | None = None
 
     embedding_model: str = Field(
         default="BAAI/bge-small-en-v1.5",
@@ -143,47 +174,137 @@ class Settings(BaseSettings):
 
     @property
     def llm_provider_normalized(self) -> str:
-        return self.llm_provider.strip().lower()
+        return self._normalize_provider(self.llm_provider)
+
+    @property
+    def secondary_llm_provider_normalized(self) -> str | None:
+        provider = self._normalize_provider(self.secondary_llm_provider)
+        if not provider or provider == self.llm_provider_normalized:
+            return None
+        return provider
 
     @property
     def llm_api_key(self) -> str | None:
-        if self.llm_provider_normalized == "openrouter":
-            return self.openrouter_api_key
-        if self.llm_provider_normalized == "groq":
-            return self.groq_api_key
-        if self.llm_provider_normalized in {"gemini", "google", "google-gemini"}:
-            return self.gemini_api_key
-        return None
+        return self.provider_api_key(self.llm_provider_normalized)
 
     @property
     def llm_base_url(self) -> str | None:
-        if self.llm_provider_normalized == "openrouter":
-            return self.openrouter_base_url
-        if self.llm_provider_normalized == "groq":
-            return self.groq_base_url
-        if self.llm_provider_normalized in {"gemini", "google", "google-gemini"}:
-            return self.gemini_api_url
-        return None
+        return self.provider_base_url(self.llm_provider_normalized)
 
     @property
     def llm_model(self) -> str | None:
-        if self.llm_provider_normalized == "openrouter":
-            return self.openrouter_model
-        if self.llm_provider_normalized == "groq":
-            return self.groq_model
-        if self.llm_provider_normalized in {"gemini", "google", "google-gemini"}:
-            return self.gemini_model
-        return None
+        return self.provider_model(self.llm_provider_normalized)
 
     @property
     def llm_fallback_model(self) -> str | None:
-        if self.llm_provider_normalized in {"gemini", "google", "google-gemini"}:
-            return self.gemini_fallback_model
-        return None
+        return self.provider_fallback_model(self.llm_provider_normalized)
 
     @property
     def llm_configured(self) -> bool:
         return bool(self.llm_api_key and self.llm_base_url and self.llm_model)
+
+    def provider_api_key(self, provider: str | None) -> str | None:
+        normalized = self._normalize_provider(provider)
+        if normalized == OPENROUTER_PROVIDER:
+            return self.openrouter_api_key
+        if normalized == GROQ_PROVIDER:
+            return self.groq_api_key
+        if normalized == GEMINI_PROVIDER:
+            return self.gemini_api_key
+        return None
+
+    def provider_base_url(self, provider: str | None) -> str | None:
+        normalized = self._normalize_provider(provider)
+        if normalized == OPENROUTER_PROVIDER:
+            return self.openrouter_base_url
+        if normalized == GROQ_PROVIDER:
+            return self.groq_base_url
+        if normalized == GEMINI_PROVIDER:
+            return self.gemini_api_url
+        return None
+
+    def provider_model(self, provider: str | None) -> str | None:
+        normalized = self._normalize_provider(provider)
+        if normalized == OPENROUTER_PROVIDER:
+            return self.openrouter_model
+        if normalized == GROQ_PROVIDER:
+            return self.groq_model
+        if normalized == GEMINI_PROVIDER:
+            return self.gemini_model
+        return None
+
+    def provider_fallback_model(self, provider: str | None) -> str | None:
+        normalized = self._normalize_provider(provider)
+        if normalized == OPENROUTER_PROVIDER:
+            return self.openrouter_fallback_model
+        if normalized == GROQ_PROVIDER:
+            return self.groq_fallback_model
+        if normalized == GEMINI_PROVIDER:
+            return self.gemini_fallback_model
+        return None
+
+    def provider_configured(self, provider: str | None) -> bool:
+        normalized = self._normalize_provider(provider)
+        return bool(
+            normalized
+            and normalized in SUPPORTED_LLM_PROVIDERS
+            and self.provider_api_key(normalized)
+            and self.provider_base_url(normalized)
+            and self.provider_model(normalized)
+        )
+
+    @staticmethod
+    def provider_env_names(provider: str | None) -> tuple[str, str, str]:
+        normalized = Settings._normalize_provider(provider)
+        if normalized == OPENROUTER_PROVIDER:
+            return "OPENROUTER_API_KEY", "OPENROUTER_BASE_URL", "OPENROUTER_MODEL"
+        if normalized == GROQ_PROVIDER:
+            return "GROQ_API_KEY", "GROQ_BASE_URL", "GROQ_MODEL"
+        if normalized == GEMINI_PROVIDER:
+            return "GEMINI_API_KEY", "GEMINI_API_URL", "GEMINI_MODEL"
+        return "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL"
+
+    def validate_startup_configuration(self) -> None:
+        errors: list[str] = []
+
+        def require(name: str, value: object) -> None:
+            if value is None or not str(value).strip():
+                errors.append(f"{name} is required")
+
+        require("DATABASE_URL", self.database_url)
+        require("QDRANT_URL", self.qdrant_url)
+        if self.qdrant_url and not self.qdrant_url_is_valid:
+            errors.append("QDRANT_URL must start with http:// or https://")
+        require("QDRANT_API_KEY", self.qdrant_api_key)
+        require("AWS_REGION", self.aws_region)
+        require("AWS_ACCESS_KEY_ID", self.aws_access_key_id)
+        require("AWS_SECRET_ACCESS_KEY", self.aws_secret_access_key)
+        require("S3_RULE_BUCKET or S3_BUCKET", self.rule_bucket)
+        require("S3_TEMP_UPLOAD_BUCKET or S3_BUCKET", self.upload_bucket)
+        require("S3_REPORT_BUCKET or S3_BUCKET", self.report_bucket)
+
+        provider = self.llm_provider_normalized
+        if provider not in SUPPORTED_LLM_PROVIDERS:
+            errors.append(f"LLM_PROVIDER is unsupported: {self.llm_provider}")
+        else:
+            key_name, base_url_name, model_name = self.provider_env_names(provider)
+            require(key_name, self.provider_api_key(provider))
+            require(base_url_name, self.provider_base_url(provider))
+            require(model_name, self.provider_model(provider))
+
+        secondary_provider = self.secondary_llm_provider_normalized
+        if secondary_provider:
+            if secondary_provider not in SUPPORTED_LLM_PROVIDERS:
+                errors.append(f"SECONDARY_LLM_PROVIDER is unsupported: {self.secondary_llm_provider}")
+            else:
+                key_name, base_url_name, model_name = self.provider_env_names(secondary_provider)
+                require(key_name, self.provider_api_key(secondary_provider))
+                require(base_url_name, self.provider_base_url(secondary_provider))
+                require(model_name, self.provider_model(secondary_provider))
+
+        if errors:
+            details = "; ".join(errors)
+            raise RuntimeError(f"Startup configuration validation failed: {details}.")
 
     @property
     def diagnostics_summary(self) -> dict[str, str | bool | int]:
@@ -197,11 +318,14 @@ class Settings(BaseSettings):
             "s3_temp_bucket_configured": bool(self.upload_bucket),
             "s3_report_bucket_configured": bool(self.report_bucket),
             "llm_provider": self.llm_provider_normalized,
+            "llm_model": self.llm_model or "",
+            "llm_fallback_model_configured": bool(self.llm_fallback_model),
+            "secondary_llm_provider": self.secondary_llm_provider_normalized or "",
             "llm_configured": self.llm_configured,
             "openrouter_configured": bool(
                 self.openrouter_api_key and self.openrouter_base_url and self.openrouter_model,
             ),
-            "groq_configured": bool(self.groq_api_key and self.groq_base_url),
+            "groq_configured": bool(self.groq_api_key and self.groq_base_url and self.groq_model),
             "gemini_configured": bool(self.gemini_api_key and self.gemini_api_url and self.gemini_model),
             "cors_origins_count": len(self.cors_origin_list),
             "jwt_configured": bool(self.jwt_secret_key and self.jwt_secret_key != "change-me"),
@@ -249,6 +373,13 @@ class Settings(BaseSettings):
     @staticmethod
     def _parse_csv_list(value: str) -> list[str]:
         return [item.strip() for item in value.split(",") if item.strip()]
+
+    @staticmethod
+    def _normalize_provider(value: str | None) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized in GEMINI_PROVIDER_ALIASES:
+            return GEMINI_PROVIDER
+        return normalized
 
 
 @lru_cache

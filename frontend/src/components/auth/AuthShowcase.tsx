@@ -46,7 +46,7 @@ export function AuthShowcase({ mode }: { mode: "login" | "register" }) {
           </div>
         </div>
         <motion.div
-          initial={{ opacity: 0, scale: 0.94 }}
+          initial={false}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.15 }}
           className="glass-panel relative mx-auto aspect-square w-[360px] rounded-2xl p-8"
