@@ -21,7 +21,6 @@ logger = get_logger(__name__)
 _TRAILING_COMMA_RE = re.compile(r",(\s*[}\]])")
 _FENCED_JSON_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 _REQUIRED_RESPONSE_KEYS = frozenset({"summary", "findings", "compliance_score"})
-_MAX_COMPLETION_TOKENS = 700
 
 
 class LLMResponseValidationError(ValueError):
@@ -85,7 +84,10 @@ class LLMService:
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         started = time()
-        effective_max_tokens = max(1, min(int(max_tokens or settings.max_output_tokens), _MAX_COMPLETION_TOKENS))
+        effective_max_tokens = max(
+            1,
+            min(int(max_tokens or settings.max_output_tokens), int(settings.llm_max_completion_tokens or 1)),
+        )
         retry_queue = self._provider_router.retry_queue()
         if not retry_queue:
             raise RuntimeError("No configured LLM provider is available.")
@@ -116,7 +118,53 @@ class LLMService:
             if provider_attempt_index > 1:
                 log_pipeline_stage(
                     logger,
+                    "FAILOVER_TRIGGERED",
+                    audit_id=audit_id,
+                    document_id=document_id,
+                    domain=domain,
+                    started_at=time(),
+                    status="selected",
+                    provider=provider_attempt.provider,
+                    model=provider_attempt.model,
+                    fallback_stage=provider_attempt.stage,
+                    provider_attempt=provider_attempt_index,
+                    analysis_attempt=attempt,
+                    **(metadata or {}),
+                )
+                log_pipeline_stage(
+                    logger,
                     "LLM_FALLBACK",
+                    audit_id=audit_id,
+                    document_id=document_id,
+                    domain=domain,
+                    started_at=time(),
+                    status="selected",
+                    provider=provider_attempt.provider,
+                    model=provider_attempt.model,
+                    fallback_stage=provider_attempt.stage,
+                    provider_attempt=provider_attempt_index,
+                    analysis_attempt=attempt,
+                    **(metadata or {}),
+                )
+                log_pipeline_stage(
+                    logger,
+                    "FALLBACK_MODEL_USED",
+                    audit_id=audit_id,
+                    document_id=document_id,
+                    domain=domain,
+                    started_at=time(),
+                    status="selected",
+                    provider=provider_attempt.provider,
+                    model=provider_attempt.model,
+                    fallback_stage=provider_attempt.stage,
+                    provider_attempt=provider_attempt_index,
+                    analysis_attempt=attempt,
+                    **(metadata or {}),
+                )
+            else:
+                log_pipeline_stage(
+                    logger,
+                    "PRIMARY_MODEL_USED",
                     audit_id=audit_id,
                     document_id=document_id,
                     domain=domain,
@@ -156,11 +204,13 @@ class LLMService:
                     user=user,
                     max_tokens=request_metadata.max_tokens,
                 )
+                allow_repair = settings.json_repair_enabled and provider_attempt_index == len(retry_queue)
                 payload = parse_json_response(
                     generation.content,
                     audit_id=audit_id,
                     document_id=document_id,
                     domain=domain,
+                    repair_enabled=allow_repair,
                 )
                 log_pipeline_stage(
                     logger,
@@ -176,6 +226,7 @@ class LLMService:
                     provider_attempt=provider_attempt_index,
                     fallback_stage=provider_attempt.stage,
                     max_tokens=request_metadata.max_tokens,
+                    json_repair_enabled=allow_repair,
                     prompt_tokens=generation.usage.get("prompt_tokens"),
                     completion_tokens=generation.usage.get("completion_tokens"),
                     total_tokens=generation.usage.get("total_tokens"),
@@ -267,9 +318,11 @@ def parse_json_response(
     audit_id: str | None = None,
     document_id: str | None = None,
     domain: str | None = None,
+    repair_enabled: bool | None = None,
 ) -> dict[str, Any]:
     started = time()
     cleaned = clean_json_response(content)
+    allow_repair = settings.json_repair_enabled if repair_enabled is None else repair_enabled
     raw_output_path: str | None = None
     try:
         fast_payload = json.loads(cleaned)
@@ -305,6 +358,34 @@ def parse_json_response(
                 repair_applied=False,
             )
             return fast_payload
+    if not allow_repair:
+        raw_output_path = save_failed_llm_output(
+            content=content,
+            cleaned_content=cleaned,
+            repaired_content=None,
+            audit_id=audit_id,
+            document_id=document_id,
+            domain=domain,
+            error="json_repair_disabled",
+        )
+        log_pipeline_stage(
+            logger,
+            "LLM_JSON_PARSE_FAILED",
+            audit_id=audit_id,
+            document_id=document_id,
+            domain=domain,
+            started_at=started,
+            status="failed",
+            error="json_repair_disabled",
+            raw_output_path=raw_output_path,
+            output_chars=len(content or ""),
+            cleaned_chars=len(cleaned),
+        )
+        raise LLMResponseValidationError(
+            "LLM JSON output could not be parsed.",
+            invalid_keys=["json"],
+            present_keys=[],
+        )
     try:
         repaired = repair_json(cleaned)
     except Exception as exc:
@@ -584,6 +665,8 @@ def _safe_filename_part(value: str) -> str:
 
 
 def is_retryable_llm_error(exc: Exception | None) -> bool:
+    if isinstance(exc, (json.JSONDecodeError, LLMResponseValidationError)):
+        return True
     status_code = _status_code_from_exception(exc)
     if status_code in {402, 429, 500, 502, 503, 504}:
         return True

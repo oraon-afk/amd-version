@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, FileWarning, Flame, Gauge, History, RefreshCw, ShieldCheck, type LucideIcon } from "lucide-react";
+import { motion } from "framer-motion";
 import { useEffect, useMemo } from "react";
 import { EmptyState } from "@/components/dashboard/EmptyState";
 import { PageHeader } from "@/components/dashboard/PageHeader";
@@ -11,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
-import { formatDate, formatPercent } from "@/lib/utils";
+import { formatDate, formatPercent, normalizeScore, scoreToProgress } from "@/lib/utils";
 import { getErrorMessage } from "@/services/api/client";
 import { getComplianceDigitalTwin, rebuildComplianceDigitalTwin } from "@/services/digital-twin/digital-twin-service";
 import { ComplianceDigitalTwin } from "@/types/api";
@@ -94,23 +95,28 @@ export default function ComplianceDigitalTwinPage() {
 function TwinMetrics({ twin }: { twin: ComplianceDigitalTwin }) {
   return (
     <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-      <Metric icon={Gauge} label="Maturity" value={formatPercent(twin.maturity_score)} />
-      <Metric icon={ShieldCheck} label="Coverage" value={formatPercent(twin.coverage_score)} />
-      <Metric icon={Flame} label="Risk Pressure" value={formatPercent(twin.risk_score)} />
-      <Metric icon={History} label="Snapshots" value={String(twin.history.length)} />
+      <Metric index={0} icon={Gauge} label="Maturity" value={formatTwinScore(twin.maturity_score)} />
+      <Metric index={1} icon={ShieldCheck} label="Coverage" value={formatTwinScore(twin.coverage_score)} />
+      <Metric index={2} icon={Flame} label="Risk Pressure" value={formatTwinScore(twin.risk_score)} />
+      <Metric index={3} icon={History} label="Snapshots" value={String(twin.history.length)} />
     </section>
   );
 }
 
-function Metric({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
+function Metric({ icon: Icon, label, value, index }: { icon: LucideIcon; label: string; value: string; index: number }) {
   return (
-    <div className="rounded-lg border border-line bg-card p-4">
+    <motion.div
+      initial={{ scale: 0.9, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ delay: index * 0.07, type: "spring", stiffness: 200, damping: 20 }}
+      className="rounded-lg border border-line bg-card p-4 transition-all duration-200 hover:shadow-[0_16px_32px_rgba(124,77,255,0.1)]"
+    >
       <div className="flex items-center gap-2 text-xs font-semibold uppercase text-muted">
         <Icon className="h-4 w-4 text-info" />
         {label}
       </div>
       <div className="mt-3 text-2xl font-semibold">{value}</div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -122,7 +128,7 @@ function MaturityPanel({ twin }: { twin: ComplianceDigitalTwin }) {
         <CardTitle>Compliance Maturity</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Progress value={twin.maturity_score * 100} />
+        <Progress value={scoreToProgress(twin.maturity_score) ?? 0} />
         <div className="grid gap-3 sm:grid-cols-3">
           <Fact label="Maturity Band" value={getString(twin.summary.maturity_band) ?? "Not returned"} />
           <Fact label="Coverage Band" value={getString(twin.summary.coverage_band) ?? "Not returned"} />
@@ -149,14 +155,20 @@ function RiskHeatmap({
         <CardTitle>Risk Heatmap</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-3 sm:grid-cols-2">
-        {twin.risk_heatmap.map((row) => {
+        {twin.risk_heatmap.map((row, index) => {
           const domain = getString(row.domain) ?? "Unknown";
           const domainKey = normalizeDomain(domain);
           const risk = getString(row.risk_level) ?? "UNKNOWN";
           const policyCount = Math.max(getNumber(row.policy_count) ?? 0, policyCountsByDomain.get(domainKey) ?? 0);
           const findings = Math.max(getNumber(row.findings_count) ?? 0, findingsByDomain.get(domainKey) ?? 0);
           return (
-            <div key={domain} className="rounded-lg border border-line bg-white/5 p-3">
+            <motion.div
+              key={domain}
+              initial={{ y: 16, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: index * 0.05, duration: 0.3 }}
+              className="rounded-lg border border-line bg-white/5 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-violet/30 hover:shadow-[0_12px_24px_rgba(124,77,255,0.08)]"
+            >
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate text-sm font-semibold capitalize">{domain}</span>
                 <Badge variant={riskVariant(risk)}>{risk}</Badge>
@@ -165,7 +177,7 @@ function RiskHeatmap({
                 <span>Policies: {policyCount}</span>
                 <span>Findings: {findings}</span>
               </div>
-            </div>
+            </motion.div>
           );
         })}
       </CardContent>
@@ -187,13 +199,13 @@ function MissingPolicies({ twin }: { twin: ComplianceDigitalTwin }) {
         {twin.missing_policies.map((policy) => {
           const domain = getString(policy.domain) ?? "Unknown domain";
           return (
-            <div key={domain} className="rounded-lg border border-line bg-white/5 p-3">
+            <motion.div key={domain} initial={{ x: -12, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: 0.3 }} className="rounded-lg border border-line bg-white/5 p-3">
               <div className="flex items-center gap-2 text-sm font-semibold capitalize">
                 <FileWarning className="h-4 w-4 text-warning" />
                 {domain}
               </div>
               <p className="mt-2 text-sm leading-6 text-muted">{getString(policy.reason) ?? "No uploaded policy found."}</p>
-            </div>
+            </motion.div>
           );
         })}
       </CardContent>
@@ -209,8 +221,14 @@ function PolicyInventory({ twin }: { twin: ComplianceDigitalTwin }) {
       </CardHeader>
       <CardContent className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
         {twin.policies.length === 0 && <p className="text-sm text-muted">No uploaded compliance policies are available yet.</p>}
-        {twin.policies.map((policy) => (
-          <div key={policy.id} className="rounded-lg border border-line bg-white/5 p-3">
+        {twin.policies.map((policy, index) => (
+          <motion.div
+            key={policy.id}
+            initial={{ x: -12, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            transition={{ delay: index * 0.04, duration: 0.3 }}
+            className="rounded-lg border border-line bg-white/5 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-violet/25"
+          >
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold">{policy.title}</div>
@@ -219,11 +237,11 @@ function PolicyInventory({ twin }: { twin: ComplianceDigitalTwin }) {
               <Badge variant={riskVariant(policy.risk_level ?? "LOW")}>{policy.risk_level ?? "No risk"}</Badge>
             </div>
             <div className="mt-3 grid gap-2 text-xs text-muted sm:grid-cols-3">
-              <span>Score: {policy.compliance_score === null ? "n/a" : formatPercent(policy.compliance_score)}</span>
+              <span>Score: {policy.compliance_score === null ? "n/a" : formatTwinScore(policy.compliance_score)}</span>
               <span>Findings: {policy.findings_count}</span>
               <span>Status: {policy.status}</span>
             </div>
-          </div>
+          </motion.div>
         ))}
       </CardContent>
     </Card>
@@ -238,19 +256,25 @@ function HistoryPanel({ twin }: { twin: ComplianceDigitalTwin }) {
       </CardHeader>
       <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {twin.history.length === 0 && <p className="text-sm text-muted">No historical snapshots are available.</p>}
-        {twin.history.map((snapshot) => (
-          <div key={snapshot.id} className="rounded-lg border border-line bg-white/5 p-3">
+        {twin.history.map((snapshot, index) => (
+          <motion.div
+            key={snapshot.id}
+            initial={{ y: 16, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: index * 0.06, duration: 0.3 }}
+            className="antigravity-float-slow rounded-lg border border-line bg-white/5 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-violet/25"
+          >
             <div className="flex items-center gap-2 text-xs font-semibold uppercase text-muted">
               <Activity className="h-4 w-4 text-info" />
               {formatDate(snapshot.created_at)}
             </div>
             <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
-              <span>{formatPercent(snapshot.maturity_score)}</span>
-              <span>{formatPercent(snapshot.coverage_score)}</span>
-              <span>{formatPercent(snapshot.risk_score)}</span>
+              <span>{formatTwinScore(snapshot.maturity_score)}</span>
+              <span>{formatTwinScore(snapshot.coverage_score)}</span>
+              <span>{formatTwinScore(snapshot.risk_score)}</span>
             </div>
             <p className="mt-3 text-xs leading-5 text-muted">{snapshot.summary_text}</p>
-          </div>
+          </motion.div>
         ))}
       </CardContent>
     </Card>
@@ -272,6 +296,10 @@ function getString(value: unknown) {
 
 function getNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function formatTwinScore(value: number | null | undefined) {
+  return formatPercent(normalizeScore(value) ?? value);
 }
 
 function getTwinMetrics(twin: ComplianceDigitalTwin) {

@@ -53,7 +53,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 initial={{ opacity: 0, y: -12, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -12, scale: 0.96 }}
-                className="glass-panel rounded-xl p-4"
+                className={`glass-panel rounded-xl p-4 border-l-2 ${item.variant === "error" ? "border-l-riskHigh" : "border-l-violet"}`}
               >
                 <div className="flex gap-3">
                   <Icon className={item.variant === "error" ? "h-5 w-5 text-riskHigh" : "h-5 w-5 text-riskLow"} />

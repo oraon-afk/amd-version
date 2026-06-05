@@ -25,9 +25,6 @@ from backend.app.workers.audit_workflow import audit_workflow
 
 
 logger = get_logger(__name__)
-MAX_BULK_DOCUMENTS = 2000
-BULK_READ_CHUNK_SIZE = 1024 * 1024
-DEFAULT_MAX_RETRIES = 2
 
 
 @dataclass(frozen=True)
@@ -53,10 +50,10 @@ class BulkComplianceUploadService:
     ) -> UploadBatch:
         if not files:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Upload at least one document.")
-        if len(files) > MAX_BULK_DOCUMENTS:
+        if len(files) > settings.max_bulk_documents:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Bulk upload supports up to {MAX_BULK_DOCUMENTS} documents.",
+                detail=f"Bulk upload supports up to {settings.max_bulk_documents} documents.",
             )
         domain_by_file = _resolve_per_file_domains(
             files=files,
@@ -101,7 +98,7 @@ class BulkComplianceUploadService:
                     title=title,
                     domain=file_domain,
                     status="queued",
-                    max_retries=DEFAULT_MAX_RETRIES,
+                    max_retries=settings.bulk_upload_max_retries,
                 )
                 db.add(item)
                 db.flush()
@@ -136,7 +133,7 @@ class BulkComplianceUploadService:
                         title=title,
                         domain=file_domain,
                         status="failed",
-                        max_retries=DEFAULT_MAX_RETRIES,
+                        max_retries=settings.bulk_upload_max_retries,
                         error_message=str(exc),
                         last_error_at=datetime.utcnow(),
                         completed_at=datetime.utcnow(),
@@ -365,10 +362,10 @@ class BulkRuleUploadService:
     ) -> tuple[RuleUploadBatch, list[RuleBatchFile]]:
         if not files:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Upload at least one rule document.")
-        if len(files) > MAX_BULK_DOCUMENTS:
+        if len(files) > settings.max_bulk_documents:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Bulk upload supports up to {MAX_BULK_DOCUMENTS} documents.",
+                detail=f"Bulk upload supports up to {settings.max_bulk_documents} documents.",
             )
 
         started = time()
@@ -399,7 +396,7 @@ class BulkRuleUploadService:
             try:
                 item = RuleUploadBatchItem(batch_id=batch.id, filename=filename, status="queued")
                 item.content_type = file.content_type or "application/octet-stream"
-                item.max_retries = DEFAULT_MAX_RETRIES
+                item.max_retries = settings.bulk_upload_max_retries
                 db.add(item)
                 db.flush()
                 staging_path, file_size_bytes = await _stage_upload_file(
@@ -441,7 +438,7 @@ class BulkRuleUploadService:
                         filename=filename,
                         content_type=file.content_type or "application/octet-stream",
                         status="failed",
-                        max_retries=DEFAULT_MAX_RETRIES,
+                        max_retries=settings.bulk_upload_max_retries,
                         error_message=str(exc),
                         last_error_at=datetime.utcnow(),
                         completed_at=datetime.utcnow(),
@@ -861,7 +858,7 @@ async def _stage_upload_file(
     total_bytes = 0
     with staging_path.open("wb") as output:
         while True:
-            chunk = await file.read(BULK_READ_CHUNK_SIZE)
+            chunk = await file.read(settings.bulk_read_chunk_size_bytes)
             if not chunk:
                 break
             total_bytes += len(chunk)

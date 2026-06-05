@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -8,9 +10,9 @@ from backend.app.auth.jwt_service import create_access_token, create_refresh_tok
 from backend.app.auth.password_service import hash_password, verify_password
 from backend.app.auth.auth_dependencies import get_current_user
 from backend.app.core.config import settings
-from backend.app.core.logging import get_logger
+from backend.app.core.logging import get_logger, log_once
 from backend.app.db.models.user import User
-from backend.app.db.session import get_db
+from backend.app.db.session import database_error_root_cause, get_db, recover_from_database_error
 from backend.app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserResponse
 from backend.app.services.audit_log_service import audit_log_service
 
@@ -58,7 +60,14 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> User:
         ) from exc
     except SQLAlchemyError as exc:
         db.rollback()
-        logger.exception("Database error while registering user %s", email)
+        recover_from_database_error(exc)
+        log_once(
+            logger,
+            logging.WARNING,
+            "auth_register_database_unavailable",
+            "AUTH_REGISTER_DATABASE_UNAVAILABLE root_cause=%s",
+            database_error_root_cause(exc),
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database is unavailable. Please try again shortly.",
@@ -70,7 +79,14 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
     try:
         user = db.scalar(select(User).where(User.email == payload.email.lower()))
     except SQLAlchemyError as exc:
-        logger.exception("Database error while logging in user %s", payload.email.lower())
+        recover_from_database_error(exc)
+        log_once(
+            logger,
+            logging.WARNING,
+            "auth_login_database_unavailable",
+            "AUTH_LOGIN_DATABASE_UNAVAILABLE root_cause=%s",
+            database_error_root_cause(exc),
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database is unavailable. Please try again shortly.",

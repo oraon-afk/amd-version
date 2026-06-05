@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { AlertCircle, CheckCircle2, Circle, FileText, FileUp, Loader2, UploadCloud, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -43,6 +43,7 @@ export function UploadDropzone({
   const [uploadedDocument, setUploadedDocument] = useState<UploadedDocument | null>(null);
   const [latestAudit, setLatestAudit] = useState<Audit | null>(null);
   const [auditRunning, setAuditRunning] = useState(false);
+  const [isDragHover, setIsDragHover] = useState(false);
   const isMounted = useRef(true);
 
   useEffect(() => {
@@ -167,45 +168,66 @@ export function UploadDropzone({
           <motion.label
             whileHover={{ scale: 1.005 }}
             onDragOver={(event) => event.preventDefault()}
+            onDragEnter={() => setIsDragHover(true)}
+            onDragLeave={() => setIsDragHover(false)}
             onDrop={(event) => {
               event.preventDefault();
+              setIsDragHover(false);
               selectFiles(event.dataTransfer.files, setFiles);
             }}
-            className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-primary/45 bg-white/5 p-6 text-center transition hover:border-info/60 hover:bg-info/5 ${compact ? "min-h-40" : "min-h-52"}`}
+            className={`relative flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed p-6 text-center transition-all duration-300 ${
+              isDragHover
+                ? "border-cyan bg-cyan/10 shadow-[0_0_30px_rgba(0,229,255,0.25)] cosmic-glow-cyan"
+                : "border-primary/45 bg-white/5 hover:border-cyan/60 hover:bg-cyan/5"
+            } ${compact ? "min-h-40" : "min-h-52"}`}
           >
-            <UploadCloud className="mb-3 h-10 w-10 text-cyan" />
-            <div className="text-sm font-semibold">Drop one file or browse</div>
+            <UploadCloud className={`mb-3 h-10 w-10 transition-colors duration-300 ${isDragHover ? "text-cyan" : "text-cyan/70"}`} />
+            <div className="text-sm font-semibold">{isDragHover ? "Release to upload" : "Drop one file or browse"}</div>
             <div className="mt-2 text-xs text-muted">PDF, DOCX, or TXT. Bulk compliance uploads live in the dedicated Bulk Upload screen.</div>
-            <div className="mt-4 rounded-lg bg-primary/20 px-4 py-2 text-sm font-semibold text-foreground">Browse Files</div>
+            <div className="mt-4 rounded-lg bg-primary/20 px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-primary/30">Browse Files</div>
             <input
               type="file"
               accept=".pdf,.docx,.txt,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               onChange={(event) => selectFiles(event.target.files, setFiles)}
               className="hidden"
             />
-            {files.length > 0 && (
-              <div className="mt-4 w-full max-w-xl space-y-2">
-                {files.map((file) => (
-                  <div key={`${file.name}-${file.lastModified}`} className="flex max-w-full items-center justify-between gap-2 rounded-lg border border-line bg-white/7 px-3 py-2 text-sm">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <FileText className="h-4 w-4 shrink-0 text-cyan" />
-                      <span className="truncate">{file.name}</span>
-                    </div>
-                    <button
-                      type="button"
-                      aria-label={`Remove ${file.name}`}
-                      className="rounded-md p-1 text-muted transition hover:bg-white/10 hover:text-foreground"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        setFiles((current) => current.filter((item) => item !== file));
-                      }}
+            <AnimatePresence>
+              {files.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="mt-4 w-full max-w-xl space-y-2"
+                >
+                  {files.map((file, index) => (
+                    <motion.div
+                      key={`${file.name}-${file.lastModified}`}
+                      initial={{ scale: 0.85, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      exit={{ scale: 0.7, opacity: 0, y: -20 }}
+                      transition={{ delay: index * 0.06, type: "spring", stiffness: 300, damping: 25 }}
+                      className="antigravity-float-slow flex max-w-full items-center justify-between gap-2 rounded-lg border border-line bg-white/7 px-3 py-2 text-sm"
                     >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
+                      <div className="flex min-w-0 items-center gap-2">
+                        <FileText className="h-4 w-4 shrink-0 text-cyan" />
+                        <span className="truncate">{file.name}</span>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${file.name}`}
+                        className="rounded-md p-1 text-muted transition hover:bg-white/10 hover:text-foreground"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          setFiles((current) => current.filter((item) => item !== file));
+                        }}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </motion.div>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.label>
         ) : (
           <Textarea
@@ -257,16 +279,29 @@ function AuditWorkflowChecklist({
 }) {
   const status = normalizeWorkflowStatus(audit?.status);
   const completed = status === "completed";
+  const steps = [
+    { label: "Uploaded", done: uploaded || completed, active: running && !uploaded, failed: failed && !uploaded },
+    { label: "Text Extracted", done: isAtLeast(status, "chunking"), active: status === "processing" || status === "extracting", failed: failed && uploaded },
+    { label: "Chunks Prepared", done: isAtLeast(status, "embedding"), active: status === "chunking", failed: failed && uploaded },
+    { label: "Embeddings Created", done: isAtLeast(status, "retrieving_rules"), active: status === "embedding", failed: failed && uploaded },
+    { label: "Rules Retrieved", done: isAtLeast(status, "reranking"), active: status === "retrieving_rules", failed: failed && uploaded },
+    { label: "Rules Reranked", done: isAtLeast(status, "analyzing"), active: status === "reranking", failed: failed && uploaded },
+    { label: "Compliance Analysis Complete", done: isAtLeast(status, "generating_report"), active: status === "analyzing" || status === "validating", failed: failed && uploaded },
+    { label: "Results Generated", done: completed, active: status === "generating_report", failed: failed && uploaded },
+  ];
+
   return (
     <div className="space-y-2 rounded-lg border border-line bg-black/15 p-3">
-      <WorkflowLine label="Uploaded" done={uploaded || completed} active={running && !uploaded} failed={failed && !uploaded} />
-      <WorkflowLine label="Text Extracted" done={isAtLeast(status, "chunking")} active={status === "processing" || status === "extracting"} failed={failed && uploaded} />
-      <WorkflowLine label="Chunks Prepared" done={isAtLeast(status, "embedding")} active={status === "chunking"} failed={failed && uploaded} />
-      <WorkflowLine label="Embeddings Created" done={isAtLeast(status, "retrieving_rules")} active={status === "embedding"} failed={failed && uploaded} />
-      <WorkflowLine label="Rules Retrieved" done={isAtLeast(status, "reranking")} active={status === "retrieving_rules"} failed={failed && uploaded} />
-      <WorkflowLine label="Rules Reranked" done={isAtLeast(status, "analyzing")} active={status === "reranking"} failed={failed && uploaded} />
-      <WorkflowLine label="Compliance Analysis Complete" done={isAtLeast(status, "generating_report")} active={status === "analyzing" || status === "validating"} failed={failed && uploaded} />
-      <WorkflowLine label="Results Generated" done={completed} active={status === "generating_report"} failed={failed && uploaded} />
+      {steps.map((step, index) => (
+        <motion.div
+          key={step.label}
+          initial={{ opacity: 0, x: -12 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: index * 0.06, duration: 0.3 }}
+        >
+          <WorkflowLine label={step.label} done={step.done} active={step.active} failed={step.failed} />
+        </motion.div>
+      ))}
     </div>
   );
 }
@@ -285,10 +320,14 @@ function WorkflowLine({
   const Icon = failed ? AlertCircle : done ? CheckCircle2 : active ? Loader2 : Circle;
 
   return (
-    <div className="flex items-center gap-2 text-sm">
+    <motion.div
+      animate={active ? { scale: 1.03, backgroundColor: "rgba(124, 77, 255, 0.08)" } : { scale: 1, backgroundColor: "transparent" }}
+      transition={{ type: "spring", stiffness: 300, damping: 30 }}
+      className={`flex items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors ${active ? "cosmic-glow-orchid" : ""}`}
+    >
       <Icon className={`h-4 w-4 ${failed ? "text-riskHigh" : done ? "text-riskLow" : active ? "animate-spin text-cyan" : "text-muted"}`} />
       <span className={failed ? "text-riskHigh" : done ? "text-foreground" : "text-muted"}>{label}</span>
-    </div>
+    </motion.div>
   );
 }
 

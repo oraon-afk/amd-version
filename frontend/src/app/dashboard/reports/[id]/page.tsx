@@ -41,7 +41,7 @@ import {
 import { ProcessingStatus } from "@/features/audits/components/ProcessingStatus";
 import { isAuditActive } from "@/features/audits/status";
 import { listDocuments } from "@/features/uploads/api";
-import { cn, formatDate, formatPercent } from "@/lib/utils";
+import { cn, formatDate, formatPercent, normalizeScore } from "@/lib/utils";
 import { listAdminDocuments } from "@/services/admin/admin-service";
 import { getErrorMessage } from "@/services/api/client";
 import { AuditReport, Evidence, Finding, ReportFindingPayload, ScoreDiagnostics } from "@/types/api";
@@ -145,6 +145,30 @@ export default function ReportDetailPage() {
   useEffect(() => {
     if (process.env.NODE_ENV !== "development" || !report) return;
 
+    const apiScore = readNumberFrom(
+      report,
+      "compliance_score",
+      "complianceScore",
+      "audit_score",
+      "auditScore",
+      "overall_score",
+      "overallScore",
+      "final_score",
+      "finalScore",
+      "score",
+    );
+    const rawScore = readNumberFrom(
+      getReportPayload(report),
+      "compliance_score",
+      "complianceScore",
+      "audit_score",
+      "auditScore",
+      "overall_score",
+      "overallScore",
+      "final_score",
+      "finalScore",
+      "score",
+    );
     const integrity = {
       compliance_score: complianceScore,
       findings: findingViews,
@@ -152,16 +176,23 @@ export default function ReportDetailPage() {
       risk_level: riskLevel,
     };
 
-    console.log("Report API Response", { response: report, integrity });
+    console.debug("COMPLIANCE_SCORE_TRACE", {
+      AUDIT_ID: auditId,
+      RAW_SCORE: rawScore,
+      API_SCORE: apiScore,
+      MAPPED_SCORE: complianceScore,
+      RENDERED_SCORE: formatScore(complianceScore),
+    });
+    console.debug("REPORT_RENDERED_STATE", { response: report, integrity });
     if (
       integrity.compliance_score === null ||
       integrity.findings.length === 0 ||
       !integrity.summary ||
       !integrity.risk_level
     ) {
-      console.warn("Report data integrity check", integrity);
+      console.debug("REPORT_DATA_INTEGRITY_CHECK", integrity);
     }
-  }, [aiSummary, complianceScore, findingViews, report, riskLevel]);
+  }, [aiSummary, auditId, complianceScore, findingViews, report, riskLevel]);
 
   const jsonDownload = useMutation({
     mutationFn: () => downloadReportJson(auditId),
@@ -739,9 +770,9 @@ function ExportCenter({
 
 function getComplianceScore(report: AuditReport | null) {
   if (!report) return null;
-  return (
-    readNumberFrom(report, "compliance_score", "complianceScore", "overall_score", "overallScore", "score", "risk_score") ??
-    readNumberFrom(getReportPayload(report), "compliance_score", "complianceScore", "overall_score", "overallScore", "score", "risk_score")
+  return normalizeScore(
+    readNumberFrom(report, "compliance_score", "complianceScore", "audit_score", "auditScore", "overall_score", "overallScore", "final_score", "finalScore", "score") ??
+      readNumberFrom(getReportPayload(report), "compliance_score", "complianceScore", "audit_score", "auditScore", "overall_score", "overallScore", "final_score", "finalScore", "score"),
   );
 }
 
@@ -1065,9 +1096,8 @@ function normalizeEvidenceToken(value: string) {
 }
 
 function scoreToProgress(score: number | null) {
-  if (score === null) return null;
-  const normalized = score <= 1 ? score * 100 : score;
-  return Math.max(0, Math.min(100, normalized));
+  const normalized = normalizeScore(score);
+  return normalized === null ? null : Math.round(normalized * 100);
 }
 
 function formatScore(score: number | null) {

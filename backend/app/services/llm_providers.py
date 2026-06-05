@@ -51,8 +51,8 @@ class ProviderRouter:
         return True
 
     def retry_queue(self) -> list[LLMProviderAttempt]:
-        limit = max(1, int(settings.llm_retry_attempts or 1))
-        primary_provider = settings.llm_provider_normalized
+        limit = max(1, int(settings.max_llm_retries or 1))
+        primary_provider = settings.primary_llm_provider_normalized
         queue: list[LLMProviderAttempt] = []
         seen_attempts: set[tuple[str, str]] = set()
 
@@ -65,36 +65,29 @@ class ProviderRouter:
             seen_attempts.add(key)
             queue.append(attempt)
 
-        primary_model = settings.provider_model(primary_provider)
-        primary_attempt = self._attempt(
-            provider=primary_provider,
-            model=primary_model,
-            stage="configured_model",
-        )
-        append_unique(primary_attempt)
+        configured_slots = [
+            ("primary_provider", primary_provider, settings.primary_llm_model),
+            ("secondary_provider", settings.secondary_llm_provider_normalized, settings.secondary_llm_model),
+            ("tertiary_provider", settings.tertiary_llm_provider_normalized, settings.tertiary_llm_model),
+        ]
 
-        fallback_model = settings.provider_fallback_model(primary_provider)
-        fallback_attempt = self._attempt(
-            provider=primary_provider,
-            model=fallback_model,
-            stage="configured_fallback_model",
-        )
-        append_unique(fallback_attempt)
+        for stage, provider, model in configured_slots:
+            append_unique(
+                self._attempt(
+                    provider=provider,
+                    model=model or settings.provider_model(provider),
+                    stage=stage,
+                ),
+            )
 
-        secondary_provider = settings.secondary_llm_provider_normalized
-        if secondary_provider:
-            secondary_attempt = self._attempt(
-                provider=secondary_provider,
-                model=settings.provider_model(secondary_provider),
-                stage="secondary_provider",
+        for stage, provider, _model in configured_slots:
+            append_unique(
+                self._attempt(
+                    provider=provider,
+                    model=settings.provider_fallback_model(provider),
+                    stage=f"{stage}_fallback_model",
+                ),
             )
-            append_unique(secondary_attempt)
-            secondary_fallback = self._attempt(
-                provider=secondary_provider,
-                model=settings.provider_fallback_model(secondary_provider),
-                stage="secondary_provider_fallback_model",
-            )
-            append_unique(secondary_fallback)
 
         return queue[:limit]
 

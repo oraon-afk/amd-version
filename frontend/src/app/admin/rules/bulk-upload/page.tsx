@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/toast";
+import { frontendConfig } from "@/lib/config";
 import { bulkUploadRuleDocuments, getRuleUploadBatch, listRuleCategories } from "@/services/admin/admin-service";
 import { getErrorMessage } from "@/services/api/client";
 
@@ -36,7 +37,7 @@ export default function BulkRuleUploadPage() {
     enabled: Boolean(batchId),
     refetchInterval: (query) => {
       const status = (query.state.data as { status?: string } | undefined)?.status;
-      return status && terminalStatuses.has(status) ? false : 2000;
+      return status && terminalStatuses.has(status) ? false : frontendConfig.pollIntervalMs;
     },
   });
   const batch = batchQuery.data;

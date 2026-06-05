@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.core.config import settings
 from backend.app.core.logging import get_logger, log_pipeline_stage
-from backend.app.db.models.audit import AuditReport, AuditRun
+from backend.app.db.models.audit import AuditReport, AuditRun, ComplianceScoreDiagnostic, Finding
 from backend.app.db.models.digital_twin import (
     ComplianceDigitalTwin,
     ComplianceTwinPolicyProfile,
@@ -27,8 +27,9 @@ logger = get_logger(__name__)
 class ComplianceDigitalTwinService:
     def get_or_rebuild(self, *, db: Session, user: User, rebuild: bool = False) -> dict[str, Any]:
         twin = self._get_twin(db=db, user=user)
-        if rebuild or twin is None:
-            twin = self.rebuild(db=db, user=user)
+        if twin is not None and not rebuild and self._is_cache_fresh(twin):
+            return self._payload(db=db, twin=twin)
+        twin = self.rebuild(db=db, user=user, record_snapshot=rebuild or twin is None)
         return self._payload(db=db, twin=twin)
 
     def history(self, *, db: Session, user: User) -> list[ComplianceTwinSnapshot]:
@@ -44,7 +45,7 @@ class ComplianceDigitalTwinService:
             ),
         )
 
-    def rebuild(self, *, db: Session, user: User) -> ComplianceDigitalTwin:
+    def rebuild(self, *, db: Session, user: User, record_snapshot: bool = True) -> ComplianceDigitalTwin:
         started = time()
         log_pipeline_stage(
             logger,
@@ -59,10 +60,19 @@ class ComplianceDigitalTwinService:
         )
         documents = self._documents(db=db, user=user)
         audits_by_document = self._latest_audits_by_document(db=db, documents=documents)
-        reports_by_audit = self._reports_by_audit(db=db, audit_ids=[audit.id for audit in audits_by_document.values()])
+        audit_ids = [audit.id for audit in audits_by_document.values()]
+        reports_by_audit = self._reports_by_audit(db=db, audit_ids=audit_ids)
+        diagnostics_by_audit = self._diagnostics_by_audit(db=db, audit_ids=audit_ids)
+        findings_by_audit = self._findings_by_audit(db=db, audit_ids=audit_ids)
         expected_domains = self._expected_domains(db=db)
         profiles = [
-            self._policy_profile(document=document, audit=audits_by_document.get(document.id), reports_by_audit=reports_by_audit)
+            self._policy_profile(
+                document=document,
+                audit=audits_by_document.get(document.id),
+                reports_by_audit=reports_by_audit,
+                diagnostics_by_audit=diagnostics_by_audit,
+                findings_by_audit=findings_by_audit,
+            )
             for document in documents
         ]
         missing = self._missing_policies(expected_domains=expected_domains, profiles=profiles)
@@ -113,19 +123,20 @@ class ComplianceDigitalTwinService:
                 ),
             )
 
-        db.add(
-            ComplianceTwinSnapshot(
-                twin_id=twin.id,
-                maturity_score=maturity_score,
-                coverage_score=coverage_score,
-                risk_score=risk_score,
-                total_policies=len(profiles),
-                missing_policy_count=len(missing),
-                high_risk_policy_count=sum(1 for item in profiles if item.get("risk_level") in {"HIGH", "CRITICAL"}),
-                summary_text=str(summary["summary_text"]),
-                snapshot_payload=summary,
-            ),
-        )
+        if record_snapshot:
+            db.add(
+                ComplianceTwinSnapshot(
+                    twin_id=twin.id,
+                    maturity_score=maturity_score,
+                    coverage_score=coverage_score,
+                    risk_score=risk_score,
+                    total_policies=len(profiles),
+                    missing_policy_count=len(missing),
+                    high_risk_policy_count=sum(1 for item in profiles if item.get("risk_level") in {"HIGH", "CRITICAL"}),
+                    summary_text=str(summary["summary_text"]),
+                    snapshot_payload=summary,
+                ),
+            )
         db.commit()
         db.refresh(twin)
         audit_log_service.log(
@@ -211,27 +222,54 @@ class ComplianceDigitalTwinService:
         return latest
 
     @staticmethod
+    def _diagnostics_by_audit(*, db: Session, audit_ids: list[str]) -> dict[str, ComplianceScoreDiagnostic]:
+        if not audit_ids:
+            return {}
+        diagnostics = list(
+            db.scalars(
+                select(ComplianceScoreDiagnostic)
+                .where(ComplianceScoreDiagnostic.audit_id.in_(audit_ids))
+                .order_by(ComplianceScoreDiagnostic.created_at.desc()),
+            ),
+        )
+        latest: dict[str, ComplianceScoreDiagnostic] = {}
+        for diagnostic in diagnostics:
+            latest.setdefault(diagnostic.audit_id, diagnostic)
+        return latest
+
+    @staticmethod
+    def _findings_by_audit(*, db: Session, audit_ids: list[str]) -> dict[str, list[Finding]]:
+        if not audit_ids:
+            return {}
+        findings = list(
+            db.scalars(
+                select(Finding)
+                .where(Finding.audit_id.in_(audit_ids))
+                .order_by(Finding.created_at.desc()),
+            ),
+        )
+        grouped: dict[str, list[Finding]] = {}
+        for finding in findings:
+            grouped.setdefault(finding.audit_id, []).append(finding)
+        return grouped
+
+    @staticmethod
     def _policy_profile(
         *,
         document: UploadedDocument,
         audit: AuditRun | None,
         reports_by_audit: dict[str, AuditReport],
+        diagnostics_by_audit: dict[str, ComplianceScoreDiagnostic],
+        findings_by_audit: dict[str, list[Finding]],
     ) -> dict[str, Any]:
         report = reports_by_audit.get(audit.id) if audit else None
+        diagnostics = diagnostics_by_audit.get(audit.id) if audit else None
+        findings = findings_by_audit.get(audit.id, []) if audit else []
         payload = report.report_payload if report is not None and isinstance(report.report_payload, dict) else {}
-        compliance_score = _read_number(
-            payload,
-            "compliance_score",
-            "complianceScore",
-            "overall_score",
-            "overallScore",
-            "score",
-        )
-        findings_count = int(
-            _read_number(payload, "finding_count", "findings_count", "total_violations", "failed_rules") or 0,
-        )
-        risk_level = None
-        if audit:
+        compliance_score = _score_from_diagnostics_or_report(diagnostics=diagnostics, payload=payload)
+        findings_count = len(findings)
+        risk_level = _risk_level_from_findings(findings)
+        if audit and risk_level is None:
             risk_level = str(audit.overall_risk or payload.get("risk_level") or "").upper() or None
         coverage_status = "covered" if audit and audit.status == "completed" else "uploaded"
         if audit and audit.status == "failed":
@@ -311,9 +349,7 @@ class ComplianceDigitalTwinService:
     @staticmethod
     def _maturity_score(*, profiles: list[dict[str, Any]], coverage_score: float) -> float:
         scores = [profile["compliance_score"] for profile in profiles if profile.get("compliance_score") is not None]
-        audit_completion = sum(1 for profile in profiles if profile["coverage_status"] == "covered") / max(len(profiles), 1)
-        score_average = sum(scores) / len(scores) if scores else 0.0
-        return round((coverage_score * 0.45) + (score_average * 0.4) + (audit_completion * 0.15), 4)
+        return round(sum(scores) / len(scores), 4) if scores else 0.0
 
     @staticmethod
     def _risk_score(*, heatmap: list[dict[str, Any]]) -> float:
@@ -387,6 +423,17 @@ class ComplianceDigitalTwinService:
     def _is_admin(user: User) -> bool:
         return (user.role or "").upper() == "ADMIN"
 
+    @staticmethod
+    def _is_cache_fresh(twin: ComplianceDigitalTwin) -> bool:
+        ttl = max(0, int(settings.digital_twin_cache_ttl_seconds or 0))
+        if ttl <= 0:
+            return False
+        timestamp = twin.generated_at or twin.updated_at
+        if timestamp is None:
+            return False
+        now = datetime.now(timestamp.tzinfo) if timestamp.tzinfo else datetime.utcnow()
+        return (now - timestamp).total_seconds() <= ttl
+
 
 def _read_number(payload: dict[str, Any], *keys: str) -> float | None:
     for key in keys:
@@ -403,6 +450,51 @@ def _read_number(payload: dict[str, Any], *keys: str) -> float | None:
                 continue
             if math.isfinite(number):
                 return number / 100 if value.strip().endswith("%") or number > 1 else number
+    return None
+
+
+def _score_from_diagnostics_or_report(
+    *,
+    diagnostics: ComplianceScoreDiagnostic | None,
+    payload: dict[str, Any],
+) -> float | None:
+    diagnostics_payload = (
+        diagnostics.diagnostics_payload
+        if diagnostics is not None and isinstance(diagnostics.diagnostics_payload, dict)
+        else {}
+    )
+    score = _read_number(
+        diagnostics_payload,
+        "compliance_score",
+        "complianceScore",
+        "overall_score",
+        "overallScore",
+        "score",
+    )
+    if score is not None:
+        return score
+    if diagnostics is not None and diagnostics.rules_evaluated > 0:
+        return round(max(0.0, 1.0 - (diagnostics.rules_failed / diagnostics.rules_evaluated)), 4)
+    return _read_number(
+        payload,
+        "compliance_score",
+        "complianceScore",
+        "overall_score",
+        "overallScore",
+        "score",
+    )
+
+
+def _risk_level_from_findings(findings: list[Finding]) -> str | None:
+    levels = {str(finding.risk_level or finding.severity or "").upper() for finding in findings}
+    if "CRITICAL" in levels:
+        return "CRITICAL"
+    if "HIGH" in levels:
+        return "HIGH"
+    if "MEDIUM" in levels:
+        return "MEDIUM"
+    if "LOW" in levels:
+        return "LOW"
     return None
 
 

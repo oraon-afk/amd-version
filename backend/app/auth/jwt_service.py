@@ -18,7 +18,7 @@ def create_refresh_token(*, subject: str, extra_claims: dict[str, Any] | None = 
 
 def decode_token(token: str, *, expected_type: str = "access") -> dict[str, Any]:
     try:
-        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        payload = jwt.decode(token, _jwt_secret(), algorithms=[settings.jwt_algorithm])
     except JWTError as exc:
         raise ValueError("Invalid token") from exc
 
@@ -45,5 +45,11 @@ def _create_token(
     }
     if extra_claims:
         payload.update(extra_claims)
-    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    return jwt.encode(payload, _jwt_secret(), algorithm=settings.jwt_algorithm)
 
+
+def _jwt_secret() -> str:
+    secret = str(settings.jwt_secret_key or "").strip()
+    if not secret:
+        raise RuntimeError("JWT_SECRET_KEY is not configured.")
+    return secret

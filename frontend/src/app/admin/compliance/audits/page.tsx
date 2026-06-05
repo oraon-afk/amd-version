@@ -15,7 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { downloadReportPdf, listAudits } from "@/features/audits/api";
 import { isAuditActive } from "@/features/audits/status";
-import { formatDate, formatPercent } from "@/lib/utils";
+import { formatDate, formatPercent, normalizeScore } from "@/lib/utils";
 import { deleteAdminAudit, listAdminDocuments, listAdminReports } from "@/services/admin/admin-service";
 import { getErrorMessage } from "@/services/api/client";
 import { AdminDocument, Audit, AuditReport } from "@/types/api";
@@ -240,8 +240,10 @@ export default function AdminAuditHistoryPage() {
 
 function getComplianceScore(report: AdminReport | null) {
   if (!report) return null;
-  return readNumberFrom(report, "compliance_score", "complianceScore", "overall_score", "overallScore", "score", "risk_score") ??
-    readNumberFrom(report.report_payload ?? {}, "compliance_score", "complianceScore", "overall_score", "overallScore", "score", "risk_score");
+  return normalizeScore(
+    readNumberFrom(report, "compliance_score", "complianceScore", "audit_score", "auditScore", "overall_score", "overallScore", "final_score", "finalScore", "score") ??
+      readNumberFrom(report.report_payload ?? {}, "compliance_score", "complianceScore", "audit_score", "auditScore", "overall_score", "overallScore", "final_score", "finalScore", "score"),
+  );
 }
 
 function getFindingsCount(report: AdminReport | null) {

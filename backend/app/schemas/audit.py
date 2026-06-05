@@ -75,10 +75,14 @@ class ReportResponse(BaseModel):
             self.report_payload,
             "compliance_score",
             "complianceScore",
+            "audit_score",
+            "auditScore",
             "overall_score",
             "overallScore",
+            "final_score",
+            "finalScore",
             "score",
-            "risk_score",
+            normalize_percent=True,
         )
 
     @computed_field
@@ -159,18 +163,19 @@ class ComplianceScoreDiagnosticResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-def _read_number(payload: dict[str, Any], *keys: str) -> float | None:
+def _read_number(payload: dict[str, Any], *keys: str, normalize_percent: bool = False) -> float | None:
     for key in keys:
         value = payload.get(key)
         if isinstance(value, bool):
             continue
         if isinstance(value, (int, float)) and math.isfinite(float(value)):
-            return float(value)
+            number = float(value)
+            return number / 100 if normalize_percent and number > 1 else number
         if isinstance(value, str):
             try:
                 number = float(value.strip().removesuffix("%"))
             except ValueError:
                 continue
             if math.isfinite(number):
-                return number / 100 if value.strip().endswith("%") else number
+                return number / 100 if normalize_percent and (value.strip().endswith("%") or number > 1) else number
     return None

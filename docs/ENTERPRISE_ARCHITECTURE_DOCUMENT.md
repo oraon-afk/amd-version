@@ -1843,9 +1843,9 @@ services:
     image: postgres:16
     container_name: audit_compliance_postgres
     environment:
-      POSTGRES_DB: audit_compliance
-      POSTGRES_USER: audit_user
-      POSTGRES_PASSWORD: audit_password
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     ports: ["5432:5432"]
     volumes: [postgres_data:/var/lib/postgresql/data]
 
@@ -2282,8 +2282,8 @@ docker compose -f docker-compose.dev.yml up -d  # PostgreSQL + Qdrant
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `DATABASE_URL` | Yes | sqlite (dev) | PostgreSQL connection string |
-| `JWT_SECRET_KEY` | Yes | `change-me` | JWT signing secret |
+| `DATABASE_URL` | Yes | none | PostgreSQL or SQLite connection string from `.env` |
+| `JWT_SECRET_KEY` | Yes | none | JWT signing secret from `.env` |
 | `QDRANT_URL` | Yes | — | Qdrant Cloud endpoint |
 | `QDRANT_API_KEY` | Yes | — | Qdrant API key |
 | `LLM_PROVIDER` | Yes | `openrouter` | `openrouter` / `gemini` / `groq` |
@@ -2291,7 +2291,7 @@ docker compose -f docker-compose.dev.yml up -d  # PostgreSQL + Qdrant
 | `GEMINI_API_KEY` | Conditional | — | Google Gemini API key |
 | `AWS_ACCESS_KEY_ID` | Yes | — | S3 credentials |
 | `AWS_SECRET_ACCESS_KEY` | Yes | — | S3 credentials |
-| `S3_BUCKET` | Yes | `audit-compliance-storage` | Primary S3 bucket |
+| `S3_BUCKET` | Optional for analytics | none | Primary S3 bucket |
 
 ### 16.3 Deployment Pipeline
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import logging
 from time import time
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
@@ -10,8 +11,8 @@ from sqlalchemy import inspect, text
 from backend.app.auth.jwt_service import create_access_token, decode_token
 from backend.app.auth.password_service import hash_password, verify_password
 from backend.app.core.config import settings
-from backend.app.core.logging import get_logger
-from backend.app.db.session import engine
+from backend.app.core.logging import get_logger, log_once
+from backend.app.db.session import database_error_root_cause, engine, recover_from_database_error
 from backend.app.rag.indexing.qdrant_store import qdrant_store
 from backend.app.rag.indexing.embeddings import embedding_service
 from backend.app.services.llm_service import llm_service
@@ -37,6 +38,8 @@ class DependencyHealth:
 
 def database_health() -> DependencyHealth:
     started = time()
+    if not settings.database_url:
+        return DependencyHealth(status="unhealthy", detail="DATABASE_URL is not configured.")
     required_columns = {
         "users": {"id", "email", "password_hash", "name", "role", "is_active", "created_at"},
         "uploaded_documents": {
@@ -110,8 +113,16 @@ def database_health() -> DependencyHealth:
             )
         return DependencyHealth(status="connected", latency_ms=_latency(started))
     except Exception as exc:
-        logger.exception("Database health check failed")
-        return DependencyHealth(status="unhealthy", latency_ms=_latency(started), detail=_safe_error(exc))
+        recover_from_database_error(exc)
+        root_cause = database_error_root_cause(exc)
+        log_once(
+            logger,
+            logging.WARNING,
+            "database_health_check_failed",
+            "DATABASE_HEALTH_CHECK_FAILED root_cause=%s",
+            root_cause,
+        )
+        return DependencyHealth(status="unhealthy", latency_ms=_latency(started), detail=_safe_error(root_cause))
 
 
 def auth_health() -> DependencyHealth:
@@ -139,7 +150,10 @@ def qdrant_health(*, roundtrip: bool = True) -> DependencyHealth:
 
     try:
         collections = {collection.name for collection in qdrant_store.client.get_collections().collections}
-        required = {settings.qdrant_rule_collection, settings.qdrant_upload_collection}
+        required = {
+            _qdrant_collection_name(settings.qdrant_rule_collection),
+            _qdrant_collection_name(settings.qdrant_upload_collection),
+        }
         missing = sorted(required - collections)
         if missing:
             return DependencyHealth(
@@ -202,7 +216,13 @@ def s3_health(*, roundtrip: bool = True) -> DependencyHealth:
 
         return DependencyHealth(status="connected", latency_ms=_latency(started), metadata=metadata)
     except Exception as exc:
-        logger.exception("S3 health check failed")
+        log_once(
+            logger,
+            logging.WARNING,
+            "s3_health_check_failed",
+            "S3_HEALTH_CHECK_FAILED root_cause=%s",
+            _safe_error(exc),
+        )
         return DependencyHealth(status="unhealthy", latency_ms=_latency(started), detail=_safe_error(exc))
 
 
@@ -281,6 +301,7 @@ def embeddings_health() -> DependencyHealth:
 
 
 def _qdrant_roundtrip(collection_name: str) -> str:
+    collection_name = _qdrant_collection_name(collection_name)
     vector_name = qdrant_store._get_vector_name(collection_name)
     vector = [1.0] + [0.0] * 383
     point_id = str(uuid5(NAMESPACE_URL, f"health-{uuid4()}"))
@@ -295,6 +316,13 @@ def _qdrant_roundtrip(collection_name: str) -> str:
     return "insert_search_delete_ok"
 
 
+def _qdrant_collection_name(value: str) -> str:
+    cleaned = str(value or "").strip()
+    if not cleaned:
+        raise RuntimeError("Qdrant collection name is not configured.")
+    return cleaned
+
+
 def _latency(started: float) -> int:
     return int((time() - started) * 1000)
 
@@ -304,4 +332,3 @@ def _safe_error(exc: object) -> str:
     if len(text) > 300:
         return text[:297] + "..."
     return text
-

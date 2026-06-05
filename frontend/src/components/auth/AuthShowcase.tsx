@@ -18,7 +18,7 @@ export function AuthShowcase({ mode }: { mode: "login" | "register" }) {
         ];
 
   return (
-    <section className="relative hidden overflow-hidden border-r border-line bg-panel p-10 lg:block">
+    <section className="relative z-10 hidden overflow-hidden border-r border-line bg-panel p-10 lg:block">
       <div className="relative z-10 flex h-full flex-col justify-between">
         <div>
           <div className="mb-8 flex items-center gap-3">
@@ -49,7 +49,7 @@ export function AuthShowcase({ mode }: { mode: "login" | "register" }) {
           initial={false}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.15 }}
-          className="glass-panel relative mx-auto aspect-square w-[360px] rounded-2xl p-8"
+          className="glass-panel antigravity-float relative mx-auto aspect-square w-[360px] rounded-2xl p-8"
         >
           <div className="absolute inset-8 rounded-[1.5rem] border border-primary/20 bg-primary/10" />
           <div className="absolute left-8 right-8 top-8 rounded-2xl border border-line bg-panel/80 p-3 text-xs text-muted">
@@ -61,7 +61,7 @@ export function AuthShowcase({ mode }: { mode: "login" | "register" }) {
               <motion.div
                 animate={{ width: ["48%", "86%", "68%"] }}
                 transition={{ duration: 5, repeat: Infinity, repeatType: "mirror" }}
-                className="h-full rounded-full bg-info"
+                className="h-full rounded-full bg-gradient-to-r from-violet to-cyan"
               />
             </div>
           </div>

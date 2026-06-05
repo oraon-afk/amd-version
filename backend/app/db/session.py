@@ -1,13 +1,64 @@
 from collections.abc import Generator
+import logging
+import socket
+from time import sleep
 
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.exc import InvalidatePoolError, SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from backend.app.core.config import settings
+from backend.app.core.logging import get_logger, log_once
+
+logger = get_logger(__name__)
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class DatabaseUnavailableError(SQLAlchemyError):
+    pass
+
+
+class _EngineProxy:
+    def __init__(self) -> None:
+        self._engine: Engine | None = None
+        self._engine_url: str | None = None
+
+    def get_engine(self) -> Engine:
+        database_url = _current_database_url()
+        if self._engine is None or self._engine_url != database_url:
+            self._engine = create_engine(
+                database_url,
+                pool_pre_ping=True,
+                pool_recycle=max(1, settings.database_pool_recycle_seconds),
+                future=True,
+            )
+            self._engine_url = database_url
+        return self._engine
+
+    def connect(self, *args, **kwargs):
+        return self.get_engine().connect(*args, **kwargs)
+
+    def begin(self, *args, **kwargs):
+        return self.get_engine().begin(*args, **kwargs)
+
+    def dispose(self) -> None:
+        if self._engine is not None:
+            self._engine.dispose()
+
+    def __getattr__(self, name: str):
+        return getattr(self.get_engine(), name)
+
+
+class EngineResolvingSession(Session):
+    def get_bind(self, *args, **kwargs):
+        bind = super().get_bind(*args, **kwargs)
+        if isinstance(bind, _EngineProxy):
+            return bind.get_engine()
+        return bind
 
 
 def _normalize_database_url(database_url: str) -> str:
@@ -16,22 +67,26 @@ def _normalize_database_url(database_url: str) -> str:
     return database_url
 
 
-engine = create_engine(
-    _normalize_database_url(settings.database_url),
-    pool_pre_ping=True,
-    future=True,
-)
+def _current_database_url() -> str:
+    database_url = str(settings.database_url or "").strip()
+    if not database_url:
+        raise DatabaseUnavailableError("DATABASE_URL is not configured.")
+    return _normalize_database_url(database_url)
+
+
+engine = _EngineProxy()
 
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
     bind=engine,
-    class_=Session,
+    class_=EngineResolvingSession,
     expire_on_commit=False,
 )
 
 
 def get_db() -> Generator[Session, None, None]:
+    ensure_database_configured()
     db = SessionLocal()
     try:
         yield db
@@ -39,17 +94,126 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
-def check_database_connection() -> bool:
-    with engine.connect() as connection:
-        connection.execute(text("select 1"))
+def ensure_database_configured() -> None:
+    _current_database_url()
+
+
+def validate_database_hostname() -> bool:
+    database_url = _current_database_url()
+    try:
+        parsed = make_url(database_url)
+    except Exception as exc:
+        raise DatabaseUnavailableError("DATABASE_URL is invalid.") from exc
+
+    if parsed.get_backend_name().startswith("sqlite"):
+        return True
+
+    host = parsed.host
+    if not host:
+        raise DatabaseUnavailableError("DATABASE_URL host is missing.")
+
+    try:
+        socket.getaddrinfo(host, parsed.port or _default_database_port(parsed.get_backend_name()), type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise DatabaseUnavailableError(f"Database hostname '{host}' could not be resolved: {exc}") from exc
+    return True
+
+
+def check_database_connection(*, attempts: int | None = None, validate_hostname: bool = True) -> bool:
+    _retry_database_operation(
+        lambda: _check_database_connection_once(validate_hostname=validate_hostname),
+        attempts=attempts,
+        label="database_connectivity_check",
+    )
     return True
 
 
 def init_db() -> None:
     import backend.app.db.models  # noqa: F401
 
-    Base.metadata.create_all(bind=engine)
-    _ensure_incremental_columns()
+    _retry_database_operation(lambda: Base.metadata.create_all(bind=engine), label="database_create_all")
+    _retry_database_operation(_ensure_incremental_columns, label="database_incremental_columns")
+
+
+def recover_from_database_error(exc: BaseException) -> None:
+    if not _should_dispose_pool(exc):
+        return
+    engine.dispose()
+    log_once(
+        logger,
+        logging.WARNING,
+        "database_pool_disposed_after_invalidation",
+        "DATABASE_POOL_DISPOSED reason=connection_invalidated root_cause=%s",
+        database_error_root_cause(exc),
+    )
+
+
+def is_database_exception(exc: BaseException) -> bool:
+    return any(isinstance(item, (SQLAlchemyError, DatabaseUnavailableError)) for item in _iter_exception_chain(exc))
+
+
+def database_error_root_cause(exc: BaseException) -> str:
+    chain = list(_iter_exception_chain(exc))
+    preferred = next((item for item in chain if isinstance(item, DatabaseUnavailableError)), None)
+    root = preferred or (chain[-1] if chain else exc)
+    message = str(root).strip() or root.__class__.__name__
+    if len(message) > 300:
+        return message[:297] + "..."
+    return message
+
+
+def _check_database_connection_once(*, validate_hostname: bool) -> None:
+    if validate_hostname:
+        validate_database_hostname()
+    with engine.connect() as connection:
+        connection.execute(text("select 1"))
+
+
+def _retry_database_operation(operation, *, attempts: int | None = None, label: str) -> None:
+    total_attempts = max(1, attempts or settings.database_connect_retries)
+    last_exc: Exception | None = None
+    for attempt in range(1, total_attempts + 1):
+        try:
+            operation()
+            return
+        except Exception as exc:
+            last_exc = exc
+            recover_from_database_error(exc)
+            if attempt >= total_attempts:
+                break
+            sleep(_retry_delay(attempt))
+    assert last_exc is not None
+    raise last_exc
+
+
+def _retry_delay(attempt: int) -> float:
+    return max(0.05, settings.database_retry_backoff_seconds) * (2 ** (attempt - 1))
+
+
+def _default_database_port(backend_name: str) -> int | None:
+    if backend_name.startswith("postgresql"):
+        return 5432
+    if backend_name.startswith("mysql"):
+        return 3306
+    return None
+
+
+def _should_dispose_pool(exc: BaseException) -> bool:
+    for item in _iter_exception_chain(exc):
+        if isinstance(item, InvalidatePoolError):
+            return True
+        if getattr(item, "connection_invalidated", False):
+            return True
+    return False
+
+
+def _iter_exception_chain(exc: BaseException):
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
 
 
 def _ensure_incremental_columns() -> None:

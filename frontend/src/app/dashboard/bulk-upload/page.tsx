@@ -11,10 +11,11 @@ import { Progress } from "@/components/ui/progress";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useToast } from "@/components/ui/toast";
 import { bulkUploadDocuments, getUploadBatch, listComplianceDomains } from "@/features/uploads/api";
+import { frontendConfig } from "@/lib/config";
 import { getErrorMessage } from "@/services/api/client";
 
 const terminalStatuses = new Set(["completed", "completed_with_failures", "failed"]);
-const MAX_BULK_DOCUMENTS = 2000;
+const MAX_BULK_DOCUMENTS = frontendConfig.maxBulkDocuments;
 
 type ComplianceFileRow = {
   id: string;
@@ -41,7 +42,7 @@ export default function BulkComplianceUploadPage() {
     enabled: Boolean(batchId),
     refetchInterval: (query) => {
       const status = (query.state.data as { status?: string } | undefined)?.status;
-      return status && terminalStatuses.has(status) ? false : 2000;
+      return status && terminalStatuses.has(status) ? false : frontendConfig.pollIntervalMs;
     },
   });
   const batch = batchQuery.data;

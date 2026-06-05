@@ -134,7 +134,12 @@ export type AuditReport = {
   summary: string;
   compliance_score?: number | string | null;
   complianceScore?: number | string | null;
+  audit_score?: number | string | null;
+  auditScore?: number | string | null;
   overall_score?: number | string | null;
+  overallScore?: number | string | null;
+  final_score?: number | string | null;
+  finalScore?: number | string | null;
   score?: number | string | null;
   risk_score?: number | string | null;
   risk_level?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | string | null;
@@ -149,7 +154,12 @@ export type AuditReport = {
     total_violations?: number;
     compliance_score?: number;
     complianceScore?: number;
+    audit_score?: number;
+    auditScore?: number;
     overall_score?: number;
+    overallScore?: number;
+    final_score?: number;
+    finalScore?: number;
     score?: number;
     risk_score?: number;
     risk_level?: string;
@@ -343,15 +353,21 @@ export type RuleCategory = {
   description: string | null;
 };
 
+export type StorageAreaStats = {
+  files: number | null;
+  bytes: number | null;
+};
+
 export type AdminAnalytics = {
-  users: number;
-  uploaded_documents: number;
-  rule_documents: number;
-  audits: number;
-  completed_audits: number;
-  failed_audits: number;
-  high_risk_audits: number;
-  storage: Record<string, { files: number; bytes: number }>;
+  users: number | null;
+  uploaded_documents: number | null;
+  rule_documents: number | null;
+  audits: number | null;
+  completed_audits: number | null;
+  failed_audits: number | null;
+  high_risk_audits: number | null;
+  storage: Record<string, StorageAreaStats>;
+  warnings?: string[];
 };
 
 export type AuditLog = {
@@ -381,7 +397,12 @@ export type QdrantMonitoring = {
 };
 
 export type StorageMonitoring = {
+  enabled?: boolean;
+  status?: string;
   root: string;
+  bucket?: string | null;
+  buckets?: Record<string, string | null>;
   retention_hours: number;
-  areas: Record<string, { files: number; bytes: number }>;
+  areas: Record<string, StorageAreaStats>;
+  warnings?: string[];
 };

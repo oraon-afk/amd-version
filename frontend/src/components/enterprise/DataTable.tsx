@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, ChevronsUpDown, Columns3, Download, Search, SlidersHorizontal } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -201,14 +202,20 @@ export function DataTable<T>({
             </tr>
           </thead>
           <tbody>
-            {pageRows.map((row) => (
-              <tr key={getRowId(row)} className="border-b border-line/70 transition hover:bg-elevated/70">
+            {pageRows.map((row, rowIndex) => (
+              <motion.tr
+                key={getRowId(row)}
+                initial={{ y: 25, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: rowIndex * 0.04, duration: 0.35, ease: "easeOut" }}
+                className="border-b border-line/70 transition-all duration-200 hover:-translate-y-[2px] hover:bg-elevated/70 hover:shadow-[0_20px_25px_-5px_rgba(124,77,255,0.15)]"
+              >
                 {visibleColumnList.map((column) => (
                   <td key={column.id} className={cn("min-w-0 break-words px-3 py-4 align-top", column.className)}>
                     <div className="min-w-0 overflow-hidden">{column.cell(row)}</div>
                   </td>
                 ))}
-              </tr>
+              </motion.tr>
             ))}
           </tbody>
         </table>

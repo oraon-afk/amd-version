@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, Circle, Loader2, XCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -18,6 +19,20 @@ export function ProcessingStatus({
   const stage = getWorkflowStage(audit, document) ?? (isProcessing ? "analyzing" : null);
   const failed = stage === "failed";
 
+  const stages: WorkflowStage[] = [
+    "uploaded",
+    "extracting",
+    "chunking",
+    "embedding",
+    "retrieving_rules",
+    "reranking",
+    "analyzing",
+    "generating_report",
+    "completed",
+    "failed",
+  ];
+  const activeIndex = stages.findIndex((stageLabel) => stage === stageLabel);
+
   return (
     <Card>
       <CardHeader>
@@ -25,16 +40,31 @@ export function ProcessingStatus({
       </CardHeader>
       <CardContent className="space-y-3">
         {!stage && <p className="text-sm text-muted">No document is currently processing.</p>}
-        <StatusRow label="uploaded" active={stage === "uploaded"} done={isPast(stage, "uploaded")} failed={failed} />
-        <StatusRow label="extracting" active={stage === "extracting"} done={isPast(stage, "extracting")} failed={failed} />
-        <StatusRow label="chunking" active={stage === "chunking"} done={isPast(stage, "chunking")} failed={failed} />
-        <StatusRow label="embedding" active={stage === "embedding"} done={isPast(stage, "embedding")} failed={failed} />
-        <StatusRow label="retrieving_rules" active={stage === "retrieving_rules"} done={isPast(stage, "retrieving_rules")} failed={failed} />
-        <StatusRow label="reranking" active={stage === "reranking"} done={isPast(stage, "reranking")} failed={failed} />
-        <StatusRow label="analyzing" active={stage === "analyzing"} done={isPast(stage, "analyzing")} failed={failed} />
-        <StatusRow label="generating_report" active={stage === "generating_report"} done={isPast(stage, "generating_report")} failed={failed} />
-        <StatusRow label="completed" active={stage === "completed"} done={stage === "completed"} failed={failed} />
-        <StatusRow label="failed" active={failed} done={false} failed={failed} />
+        <AnimatePresence initial={false}>
+          {stages.map((stageLabel, index) => {
+            const active = stage === stageLabel;
+            const done = stageLabel === "completed" ? stage === "completed" : stageLabel === "failed" ? false : isPast(stage, stageLabel);
+            const trail = done && !failed && activeIndex > index;
+            return (
+              <motion.div
+                key={stageLabel}
+                layout
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ delay: index * 0.05, duration: 0.3, ease: "easeOut" }}
+              >
+                <StatusRow
+                  label={stageLabel}
+                  active={active}
+                  done={done}
+                  failed={failed}
+                  trail={trail}
+                />
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
         {audit?.error_message && (
           <p className="rounded-lg border border-riskHigh/30 bg-riskHigh/10 p-3 text-sm text-riskHigh">
             {audit.error_message}
@@ -50,29 +80,63 @@ function StatusRow({
   active,
   done,
   failed,
+  trail,
 }: {
   label: WorkflowStage;
   active: boolean;
   done: boolean;
   failed: boolean;
+  trail: boolean;
 }) {
   const Icon = failed && label === "failed" ? XCircle : active && !done ? Loader2 : done ? CheckCircle2 : Circle;
+  const stateKey = failed && label === "failed" ? "failed" : active ? "active" : done ? "done" : "waiting";
 
   return (
-    <div
+    <motion.div
+      layout
+      animate={
+        active && label !== "failed"
+          ? { scale: 1.05, boxShadow: "0 0 20px rgba(124, 77, 255, 0.3)" }
+          : { scale: 1, boxShadow: "0 0 0px transparent" }
+      }
+      transition={{ type: "spring", stiffness: 300, damping: 25 }}
       className={cn(
-        "flex items-center justify-between rounded-lg border border-line bg-white/5 px-3 py-2 text-sm",
-        active && "border-cyan/40 bg-cyan/10 text-foreground",
-        done && "border-riskLow/35 bg-riskLow/10",
+        "flex items-center justify-between rounded-lg border border-line bg-white/5 px-3 py-2 text-sm transition-colors",
+        active && label !== "failed" && "border-violet/40 bg-violet/10 text-foreground cosmic-glow-orchid",
+        active && label === "failed" && "border-riskHigh/40 bg-riskHigh/10 text-riskHigh",
+        done && !active && "border-cyan/25 bg-cyan/8",
         failed && label === "failed" && "border-riskHigh/40 bg-riskHigh/10 text-riskHigh",
+        trail && "pipeline-trail",
       )}
     >
       <div className="flex items-center gap-2">
-        <Icon className={cn("h-4 w-4 text-muted", active && "text-cyan", done && "text-riskLow", failed && label === "failed" && "text-riskHigh", active && !done && "animate-spin")} />
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.span
+            key={stateKey}
+            initial={{ opacity: 0, scale: 0.82 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.82 }}
+            transition={{ duration: 0.16 }}
+            className="grid h-4 w-4 place-items-center"
+          >
+            <Icon className={cn("h-4 w-4 text-muted", active && label !== "failed" && "text-violet", active && label === "failed" && "text-riskHigh", done && "text-cyan", failed && label === "failed" && "text-riskHigh", active && !done && "animate-spin")} />
+          </motion.span>
+        </AnimatePresence>
         <span className="capitalize">{label.replace("_", " ")}</span>
       </div>
-      <span className="text-xs text-muted">{statusText({ label, active, done, failed })}</span>
-    </div>
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.span
+          key={`${stateKey}-copy`}
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 4 }}
+          transition={{ duration: 0.16 }}
+          className="text-xs text-muted"
+        >
+          {statusText({ label, active, done, failed })}
+        </motion.span>
+      </AnimatePresence>
+    </motion.div>
   );
 }
 

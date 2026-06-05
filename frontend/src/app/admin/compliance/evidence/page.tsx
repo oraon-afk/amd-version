@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getEvidence, listAudits } from "@/features/audits/api";
+import { frontendConfig } from "@/lib/config";
 import { formatDate } from "@/lib/utils";
 import { listAdminDocuments, listAdminReports } from "@/services/admin/admin-service";
 import { AdminDocument, Audit, AuditReport } from "@/types/api";
@@ -42,8 +43,8 @@ export default function AdminEvidencePage() {
         queryKey: ["evidence", audit.id],
         queryFn: () => getEvidence(audit.id),
         enabled: Boolean(audit.id),
-        staleTime: 60_000,
-        gcTime: 5 * 60_000,
+        staleTime: frontendConfig.queryStaleTimeMs,
+        gcTime: frontendConfig.queryGcTimeMs,
       })),
     [completedAudits],
   );

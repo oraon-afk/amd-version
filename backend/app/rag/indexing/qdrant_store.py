@@ -44,13 +44,13 @@ class QdrantStore:
             self._client = QdrantClient(
                 url=settings.qdrant_url,
                 api_key=settings.qdrant_api_key,
-                timeout=30,
+                timeout=settings.qdrant_timeout_seconds,
             )
         return self._client
 
     def check_connection(self) -> bool:
         collections = {collection.name for collection in self.client.get_collections().collections}
-        required = {settings.qdrant_rule_collection, settings.qdrant_upload_collection}
+        required = {_collection_name(settings.qdrant_rule_collection), _collection_name(settings.qdrant_upload_collection)}
         missing = sorted(required - collections)
         if missing:
             raise RuntimeError(f"Missing Qdrant collections: {', '.join(missing)}")
@@ -58,7 +58,7 @@ class QdrantStore:
 
     def ensure_collections(self, *, vector_size: int = 384) -> None:
         existing = {collection.name for collection in self.client.get_collections().collections}
-        for collection_name in (settings.qdrant_upload_collection, settings.qdrant_rule_collection):
+        for collection_name in (_collection_name(settings.qdrant_upload_collection), _collection_name(settings.qdrant_rule_collection)):
             if collection_name not in existing:
                 logger.info("qdrant.create_collection collection=%s", collection_name)
                 self.client.create_collection(
@@ -68,6 +68,7 @@ class QdrantStore:
             self._ensure_payload_indexes(collection_name)
 
     def _ensure_payload_indexes(self, collection_name: str) -> None:
+        collection_name = _collection_name(collection_name)
         schema = self.client.get_collection(collection_name).payload_schema or {}
         fields = {
             "source_type",
@@ -100,6 +101,7 @@ class QdrantStore:
         chunks: list[dict[str, Any]],
         embeddings: list[list[float]],
     ) -> list[str]:
+        collection_name = _collection_name(collection_name)
         if len(chunks) != len(embeddings):
             raise ValueError("chunks and embeddings must have the same length")
 
@@ -145,6 +147,7 @@ class QdrantStore:
         filters: dict[str, Any] | None = None,
         top_k: int = 8,
     ) -> list[VectorSearchResult]:
+        collection_name = _collection_name(collection_name)
         vector_name = self._get_vector_name(collection_name)
         query_filter = self._build_filter(filters)
         logger.info(
@@ -190,6 +193,7 @@ class QdrantStore:
         filters: dict[str, Any] | None = None,
         limit: int = 1000,
     ) -> list[dict[str, Any]]:
+        collection_name = _collection_name(collection_name)
         query_filter = self._build_filter(filters)
         offset = None
         payloads: list[dict[str, Any]] = []
@@ -213,6 +217,7 @@ class QdrantStore:
         return payloads
 
     def _get_vector_name(self, collection_name: str) -> str | None:
+        collection_name = _collection_name(collection_name)
         if collection_name in self._vector_names:
             return self._vector_names[collection_name]
 
@@ -247,17 +252,25 @@ class QdrantStore:
         return Filter(must=conditions)
 
     @staticmethod
-    def _retry(operation, *, attempts: int = 3):
+    def _retry(operation, *, attempts: int | None = None):
+        max_attempts = max(1, int(attempts or settings.qdrant_retry_attempts or 1))
         last_exc = None
-        for attempt in range(attempts):
+        for attempt in range(max_attempts):
             try:
                 return operation()
             except Exception as exc:
                 last_exc = exc
-                if attempt == attempts - 1:
+                if attempt == max_attempts - 1:
                     break
-                sleep(0.4 * (attempt + 1))
+                sleep(max(0.0, settings.qdrant_retry_backoff_seconds) * (attempt + 1))
         raise last_exc
+
+
+def _collection_name(value: str) -> str:
+    cleaned = str(value or "").strip()
+    if not cleaned:
+        raise ValueError("Qdrant collection name is not configured.")
+    return cleaned
 
 
 qdrant_store = QdrantStore()

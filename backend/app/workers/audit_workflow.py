@@ -5,7 +5,7 @@ import json
 from time import time
 from typing import Any, TypedDict
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
 from backend.app.agents.compliance_agent import ComplianceAnalysis, FindingDraft, compliance_agent
@@ -268,6 +268,41 @@ class AuditWorkflow:
             db.flush()
             persisted_findings.append(finding)
 
+            finding_exists = db.scalar(select(Finding.id).where(Finding.id == finding.id)) is not None
+            log_pipeline_stage(
+                logger,
+                "AUDIT_PERSISTENCE_DIAGNOSTIC",
+                audit_id=audit.id,
+                document_id=document.id,
+                domain=document.domain,
+                started_at=started,
+                status="finding_flushed",
+                AUDIT_ID=audit.id,
+                FINDING_ID=finding.id,
+                FINDING_PERSISTED=inspect(finding).persistent,
+                FINDING_EXISTS_IN_DB=finding_exists,
+                EVIDENCE_INSERT_START=False,
+            )
+
+        for draft, finding in zip(drafts, persisted_findings, strict=True):
+            finding_exists = db.scalar(select(Finding.id).where(Finding.id == finding.id)) is not None
+            log_pipeline_stage(
+                logger,
+                "AUDIT_PERSISTENCE_DIAGNOSTIC",
+                audit_id=audit.id,
+                document_id=document.id,
+                domain=document.domain,
+                started_at=started,
+                status="evidence_insert_start",
+                AUDIT_ID=audit.id,
+                FINDING_ID=finding.id,
+                FINDING_PERSISTED=inspect(finding).persistent,
+                FINDING_EXISTS_IN_DB=finding_exists,
+                EVIDENCE_INSERT_START=True,
+            )
+            if not finding_exists:
+                raise RuntimeError(f"Finding was not persisted before evidence insert: {finding.id}")
+
             for evidence in evidence_agent.trace(finding=draft):
                 db.add(
                     EvidenceLink(
@@ -282,6 +317,7 @@ class AuditWorkflow:
                         confidence_score=evidence.confidence_score,
                 ),
             )
+        db.flush()
         log_pipeline_stage(
             logger,
             "REPORT_PERSIST",
@@ -435,6 +471,9 @@ class AuditWorkflow:
             audit_result_id=audit_result.id,
             report_id=audit_report.id,
             report_json_s3_uri=report_uri,
+            raw_score=payload.get("compliance_score"),
+            api_score=payload.get("compliance_score"),
+            diagnostics_score=score_diagnostics.get("compliance_score"),
         )
         log_pipeline_stage(
             logger,

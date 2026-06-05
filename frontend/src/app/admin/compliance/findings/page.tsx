@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { listAudits } from "@/features/audits/api";
-import { formatDate, formatPercent } from "@/lib/utils";
+import { formatDate, formatPercent, normalizeScore } from "@/lib/utils";
 import { listAdminDocuments, listAdminReports } from "@/services/admin/admin-service";
 import { Audit, AuditReport, AdminDocument } from "@/types/api";
 
@@ -151,8 +151,10 @@ export default function AdminFindingsPage() {
 
 function getComplianceScore(report: AdminReport | null) {
   if (!report) return null;
-  return readNumberFrom(report, "compliance_score", "complianceScore", "overall_score", "overallScore", "score", "risk_score") ??
-    readNumberFrom(report.report_payload ?? {}, "compliance_score", "complianceScore", "overall_score", "overallScore", "score", "risk_score");
+  return normalizeScore(
+    readNumberFrom(report, "compliance_score", "complianceScore", "audit_score", "auditScore", "overall_score", "overallScore", "final_score", "finalScore", "score") ??
+      readNumberFrom(report.report_payload ?? {}, "compliance_score", "complianceScore", "audit_score", "auditScore", "overall_score", "overallScore", "final_score", "finalScore", "score"),
+  );
 }
 
 function getFindingsCount(report: AdminReport | null) {

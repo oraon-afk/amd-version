@@ -1,9 +1,11 @@
 "use client";
 
 import axios, { AxiosError } from "axios";
+import { frontendConfig } from "@/lib/config";
 import { clearTokens, getAccessToken } from "@/services/auth/token-storage";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "/api/backend";
+const DATABASE_UNAVAILABLE_MESSAGE = "Database unavailable. Please try again after the backend reconnects.";
 
 export type NormalizedApiError = {
   message: string;
@@ -19,7 +21,7 @@ type ApiErrorResponse = {
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 60_000,
+  timeout: frontendConfig.apiRequestTimeoutMs,
 });
 
 apiClient.interceptors.request.use((config) => {
@@ -37,10 +39,13 @@ apiClient.interceptors.response.use(
       clearTokens();
     }
     const responseError = error.response?.data?.error;
+    const code = typeof responseError === "object" ? responseError?.code : undefined;
+    const status = error.response?.status;
     const normalized: NormalizedApiError = {
-      status: error.response?.status,
-      code: typeof responseError === "object" ? responseError?.code : undefined,
+      status,
+      code,
       message:
+        (status === 503 && code === "database_unavailable" ? DATABASE_UNAVAILABLE_MESSAGE : undefined) ||
         normalizeError(responseError) ||
         normalizeDetail(error.response?.data?.detail) ||
         error.response?.data?.message ||
@@ -53,10 +58,19 @@ apiClient.interceptors.response.use(
 
 export function getErrorMessage(error: unknown) {
   if (typeof error === "string") return error;
+  if (isDatabaseUnavailableError(error)) return DATABASE_UNAVAILABLE_MESSAGE;
   if (typeof error === "object" && error && "message" in error) {
     return String((error as { message: string }).message);
   }
   return "Something went wrong";
+}
+
+export function isDatabaseUnavailableError(error: unknown) {
+  return Boolean(
+    typeof error === "object" &&
+      error &&
+      ((error as NormalizedApiError).code === "database_unavailable" || (error as NormalizedApiError).status === 503),
+  );
 }
 
 function normalizeError(error: ApiErrorResponse["error"]) {

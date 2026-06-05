@@ -590,10 +590,23 @@ class ComplianceAgent:
 
     @staticmethod
     def _coerce_score(value: object, *, default: float) -> float:
-        try:
-            score = float(value)
-        except (TypeError, ValueError):
+        if isinstance(value, bool):
             score = default
+        elif isinstance(value, str):
+            stripped = value.strip()
+            try:
+                parsed = float(stripped.removesuffix("%"))
+            except ValueError:
+                score = default
+            else:
+                score = parsed / 100 if stripped.endswith("%") or parsed > 1 else parsed
+        else:
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError):
+                score = default
+            else:
+                score = parsed / 100 if parsed > 1 else parsed
         return round(max(0.0, min(1.0, score)), 4)
 
     @staticmethod

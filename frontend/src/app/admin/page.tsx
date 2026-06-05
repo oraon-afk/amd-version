@@ -54,8 +54,8 @@ export default function AdminDashboardPage() {
                   </div>
                   {qdrantQuery.data.error && <span className="ml-2 text-riskHigh">{qdrantQuery.data.error}</span>}
                 </div>
-                {qdrantQuery.data.collections.map((collection) => (
-                  <div key={collection.name} className="rounded-lg border border-line bg-elevated p-4 text-sm">
+                {qdrantQuery.data.collections.map((collection, index) => (
+                  <div key={`${collection.name}-${index}`} className="rounded-lg border border-line bg-elevated p-4 text-sm">
                     <div className="font-semibold">{collection.name}</div>
                     <div className="mt-1 text-muted">
                       Points: {collection.points_count ?? "-"} | Vectors: {collection.vectors_count ?? "-"}
@@ -86,13 +86,13 @@ export default function AdminDashboardPage() {
   );
 }
 
-function Metric({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: number }) {
+function Metric({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: number | null }) {
   return (
     <Card>
       <CardContent className="flex items-center justify-between gap-3 p-4">
         <div>
           <div className="text-xs uppercase text-muted">{label}</div>
-          <div className="mt-2 text-2xl font-semibold">{value}</div>
+          <div className="mt-2 text-2xl font-semibold">{value ?? "Unavailable"}</div>
         </div>
         <Icon className="h-6 w-6 text-cyan" />
       </CardContent>

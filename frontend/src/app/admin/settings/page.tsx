@@ -73,9 +73,13 @@ export default function AdminSettingsPage() {
             {storageQuery.data && (
               <>
                 <Info icon={HardDrive} label="Root" value={storageQuery.data.root} />
+                <Info icon={HardDrive} label="Status" value={storageQuery.data.status ?? "Unavailable"} />
                 <Info icon={HardDrive} label="Temp TTL" value={`${storageQuery.data.retention_hours} hours`} />
+                {Object.entries(storageQuery.data.buckets ?? {}).map(([label, bucket]) => (
+                  <Info key={label} icon={HardDrive} label={label.replaceAll("_", " ")} value={bucket ?? "Not configured"} />
+                ))}
                 {Object.entries(storageQuery.data.areas).map(([area, stats]) => (
-                  <Info key={area} icon={HardDrive} label={area} value={`${stats.files} files`} />
+                  <Info key={area} icon={HardDrive} label={area} value={`${formatCount(stats.files)} files`} />
                 ))}
               </>
             )}
@@ -126,4 +130,8 @@ function Info({ icon: Icon, label, value }: { icon: LucideIcon; label: string; v
       </div>
     </div>
   );
+}
+
+function formatCount(value: number | null | undefined) {
+  return value === null || value === undefined ? "Unavailable" : String(value);
 }

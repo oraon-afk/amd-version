@@ -52,7 +52,7 @@ Create your environment file:
 copy .env.example .env
 ```
 
-For a first local run, the defaults in `.env.example` use SQLite and local storage. Set `JWT_SECRET_KEY` to any strong random value before sharing the app.
+For a first local run, set `DATABASE_URL` in `.env` to the local SQLite example and set `JWT_SECRET_KEY` to a strong random value before starting the backend.
 
 Run database migrations:
 
@@ -93,7 +93,10 @@ docker compose -f docker-compose.dev.yml up -d
 Then update `.env`:
 
 ```env
-DATABASE_URL=postgresql+psycopg://audit_user:audit_password@127.0.0.1:5432/audit_compliance
+POSTGRES_DB=audit_compliance
+POSTGRES_USER=audit_user
+POSTGRES_PASSWORD=<set-a-local-password>
+DATABASE_URL=postgresql+psycopg://audit_user:<set-a-local-password>@127.0.0.1:5432/audit_compliance
 QDRANT_URL=http://127.0.0.1:6333
 QDRANT_API_KEY=
 ```
@@ -114,7 +117,7 @@ APP_HOST=127.0.0.1
 APP_PORT=8000
 CORS_ORIGINS=http://localhost:3000
 DATABASE_URL=sqlite:///./audit_compliance_local.db
-JWT_SECRET_KEY=change-this-local-secret
+JWT_SECRET_KEY=<set-a-strong-random-secret>
 QDRANT_URL=
 QDRANT_API_KEY=
 QDRANT_RULE_COLLECTION=compliance_rules
@@ -123,7 +126,7 @@ LLM_PROVIDER=openrouter
 SECONDARY_LLM_PROVIDER=
 OPENROUTER_API_KEY=
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-OPENROUTER_MODEL=Laguna M.1
+OPENROUTER_MODEL=
 OPENROUTER_FALLBACK_MODEL=
 GROQ_API_KEY=
 GEMINI_API_KEY=

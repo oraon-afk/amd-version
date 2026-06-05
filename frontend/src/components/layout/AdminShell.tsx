@@ -24,6 +24,7 @@ import { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/providers/auth-provider";
+import { CosmicBackground } from "./CosmicBackground";
 
 const adminSections = [
   {
@@ -70,8 +71,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
 
   return (
-    <div className="min-h-screen bg-background bg-app-radial text-foreground">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden h-screen w-72 flex-col border-r border-line bg-panel/95 p-4 backdrop-blur-xl lg:flex">
+    <div className="relative min-h-screen bg-background bg-app-radial text-foreground">
+      <CosmicBackground />
+      <aside className="fixed inset-y-0 left-0 z-30 hidden h-screen w-72 flex-col border-r border-line bg-panel/95 p-4 backdrop-blur-xl lg:flex antigravity-float-slow">
         <div className="mb-7 flex shrink-0 items-center gap-3 px-2">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary shadow-glow">
             <ShieldCheck className="h-5 w-5 text-white" />
@@ -99,13 +101,13 @@ export function AdminShell({ children }: { children: ReactNode }) {
             </div>
           ))}
         </nav>
-        <div className="mt-4 shrink-0 rounded-lg border border-line bg-elevated p-3">
+        <div className="mt-4 shrink-0 rounded-lg border border-line bg-elevated p-3 antigravity-float-alt">
           <div className="text-xs uppercase text-muted">Signed in as</div>
           <div className="mt-1 truncate text-sm font-semibold">{user?.full_name ?? user?.email}</div>
           <div className="mt-1 text-xs text-cyan">{user?.role}</div>
         </div>
       </aside>
-      <div className="lg:pl-72">
+      <div className="relative z-10 lg:pl-72">
         <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-line bg-background/86 px-4 py-3 backdrop-blur-xl md:px-6">
           <div className="min-w-0">
             <div className="text-xs uppercase text-muted">Administration</div>
@@ -152,7 +154,7 @@ function AdminNavLink({
     <Link
       className={cn(
         "flex items-center gap-3 rounded-lg px-3 py-2.5 text-muted transition hover:bg-elevated hover:text-foreground",
-        active && "bg-primary/18 text-foreground shadow-[inset_3px_0_0_0_#60a5fa]",
+        active && "bg-primary/18 text-foreground shadow-[inset_3px_0_0_0_#7C4DFF]",
       )}
       href={href}
     >

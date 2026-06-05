@@ -2,7 +2,8 @@
 
 import { Check, ChevronsUpDown, Search } from "lucide-react";
 import type { KeyboardEvent } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 
 export type SearchableSelectOption = {
@@ -29,10 +30,19 @@ export function SearchableSelect({
   ariaLabel?: string;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [menuPosition, setMenuPosition] = useState<{
+    bottom?: number;
+    left: number;
+    maxHeight: number;
+    top?: number;
+    width: number;
+  } | null>(null);
 
   const selected = options.find((option) => option.value === value);
   const filtered = useMemo(() => {
@@ -51,13 +61,46 @@ export function SearchableSelect({
 
   useEffect(() => {
     function onPointerDown(event: MouseEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
         setOpen(false);
       }
     }
     window.document.addEventListener("mousedown", onPointerDown);
     return () => window.document.removeEventListener("mousedown", onPointerDown);
   }, []);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+
+    function updatePosition() {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+      const rect = trigger.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const gap = 8;
+      const spaceBelow = viewportHeight - rect.bottom - gap;
+      const spaceAbove = rect.top - gap;
+      const openBelow = spaceBelow >= 220 || spaceBelow >= spaceAbove;
+      const maxHeight = Math.max(180, Math.min(320, openBelow ? spaceBelow : spaceAbove));
+      const width = Math.min(Math.max(rect.width, 260), viewportWidth - (gap * 2));
+      setMenuPosition({
+        left: Math.min(Math.max(gap, rect.left), Math.max(gap, viewportWidth - width - gap)),
+        width,
+        maxHeight,
+        ...(openBelow ? { top: rect.bottom + gap } : { bottom: viewportHeight - rect.top + gap }),
+      });
+    }
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [open]);
 
   function selectOption(option: SearchableSelectOption) {
     onChange(option.value);
@@ -97,6 +140,7 @@ export function SearchableSelect({
   return (
     <div ref={rootRef} className={cn("relative", className)} onKeyDown={onKeyDown}>
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
         role="combobox"
@@ -114,8 +158,21 @@ export function SearchableSelect({
         <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted" />
       </button>
 
-      {open && (
-        <div className="absolute z-50 mt-2 w-full overflow-hidden rounded-lg border border-line bg-panel shadow-panel">
+      {open && menuPosition && typeof window !== "undefined" && createPortal(
+        <div
+          ref={menuRef}
+          className="isolate overflow-hidden rounded-lg border border-line bg-panel shadow-panel"
+          onKeyDown={onKeyDown}
+          style={{
+            position: "fixed",
+            zIndex: 2147483647,
+            left: menuPosition.left,
+            top: menuPosition?.top,
+            bottom: menuPosition?.bottom,
+            width: menuPosition.width,
+            maxWidth: "calc(100vw - 1rem)",
+          }}
+        >
           <div className="relative border-b border-line">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
             <input
@@ -130,7 +187,7 @@ export function SearchableSelect({
               aria-label="Search options"
             />
           </div>
-          <div className="max-h-64 overflow-y-auto p-1">
+          <div className="overflow-y-auto p-1" style={{ maxHeight: menuPosition?.maxHeight ?? 256 }}>
             {filtered.length === 0 && (
               <div className="px-3 py-3 text-sm text-muted">No options found</div>
             )}
@@ -161,7 +218,8 @@ export function SearchableSelect({
               );
             })}
           </div>
-        </div>
+        </div>,
+        window.document.body,
       )}
     </div>
   );

@@ -53,7 +53,7 @@ export function LoginForm() {
       onSubmit={handleSubmit(onSubmit)}
       initial={false}
       animate={{ opacity: 1, y: 0 }}
-      className="glass-panel w-full max-w-[31rem] rounded-lg p-6 sm:p-8"
+      className="antigravity-float-slow glass-panel w-full max-w-[31rem] rounded-lg p-6 sm:p-8"
     >
       <div className="mb-7 flex items-start gap-4">
         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary shadow-glow">

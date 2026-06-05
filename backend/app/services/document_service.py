@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from hashlib import sha256
+import logging
 from pathlib import Path
 from time import time
 from uuid import uuid4
@@ -10,9 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.core.config import settings
-from backend.app.core.logging import get_logger, log_pipeline_stage
+from backend.app.core.logging import get_logger, log_once, log_pipeline_stage
 from backend.app.db.models.document import ComplianceDomain, DocumentRecord, UploadedDocument
 from backend.app.db.models.user import User
+from backend.app.db.session import database_error_root_cause, recover_from_database_error
 from backend.app.services.audit_log_service import audit_log_service
 from backend.app.storage.s3_client import s3_storage
 from backend.app.utils.file_validation import validate_upload_file
@@ -134,7 +136,15 @@ class DocumentService:
                 source_type=source_type,
                 error=str(exc),
             )
-            logger.exception("S3 upload failed for user %s and file %s", user.id, filename)
+            log_once(
+                logger,
+                logging.WARNING,
+                "document_s3_upload_failed",
+                "DOCUMENT_S3_UPLOAD_FAILED user_id=%s filename=%s root_cause=%s",
+                user.id,
+                filename,
+                exc,
+            )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"S3 document storage failed: {exc}",
@@ -210,7 +220,16 @@ class DocumentService:
             )
         except SQLAlchemyError as exc:
             db.rollback()
-            logger.exception("Document metadata insert failed for user %s and file %s", user.id, filename)
+            recover_from_database_error(exc)
+            log_once(
+                logger,
+                logging.WARNING,
+                "document_metadata_database_unavailable",
+                "DOCUMENT_METADATA_DATABASE_UNAVAILABLE user_id=%s filename=%s root_cause=%s",
+                user.id,
+                filename,
+                database_error_root_cause(exc),
+            )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Database failed to save uploaded document metadata.",

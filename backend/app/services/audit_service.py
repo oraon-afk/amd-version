@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from backend.app.db.models.audit import AuditReport, AuditRun, ComplianceScoreDiagnostic, EvidenceLink, Finding
 from backend.app.db.models.document import UploadedDocument
 from backend.app.db.models.user import User
-from backend.app.db.session import SessionLocal
+from backend.app.db.session import SessionLocal, recover_from_database_error
 from backend.app.schemas.audit import CreateAuditRequest
 from backend.app.services.audit_log_service import audit_log_service
 from backend.app.workers.audit_workflow import audit_workflow
@@ -38,6 +38,7 @@ class AuditService:
             db.refresh(audit)
         except SQLAlchemyError as exc:
             db.rollback()
+            recover_from_database_error(exc)
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Database failed to create audit.",
