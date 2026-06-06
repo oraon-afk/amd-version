@@ -1,0 +1,81 @@
+from datetime import datetime
+
+from pydantic import BaseModel
+
+
+class DocumentResponse(BaseModel):
+    id: str
+    title: str
+    domain: str
+    role_type: str
+    source_type: str
+    s3_key: str | None
+    qdrant_collection: str
+    upload_status: str
+    processing_stage: str
+    cleanup_status: str
+    file_name: str | None
+    file_type: str | None
+    filename: str
+    content_type: str
+    s3_uri: str
+    status: str
+    extracted_text: str | None = None
+    created_at: datetime
+    expires_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ComplianceDomainResponse(BaseModel):
+    id: str | None = None
+    name: str
+    description: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class BatchDocumentResponse(BaseModel):
+    id: str
+    batch_id: str
+    document_id: str | None
+    audit_id: str | None
+    filename: str
+    content_type: str | None = None
+    file_size_bytes: int = 0
+    title: str
+    domain: str | None
+    queue_position: int
+    status: str
+    current_stage: str | None = None
+    retry_count: int = 0
+    max_retries: int = 0
+    error_message: str | None
+    processing_time_seconds: float | None
+    started_at: datetime | None
+    completed_at: datetime | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class UploadBatchResponse(BaseModel):
+    id: str
+    user_id: str
+    module: str
+    status: str
+    total_documents: int
+    completed_documents: int
+    failed_documents: int
+    processed_documents: int = 0
+    pending_documents: int = 0
+    progress_label: str | None = None
+    running_document: str | None
+    error_message: str | None
+    summary_report: dict | None = None
+    started_at: datetime | None
+    completed_at: datetime | None
+    created_at: datetime
+    documents: list[BatchDocumentResponse] = []
+
+    model_config = {"from_attributes": True}

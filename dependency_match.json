@@ -1,0 +1,90 @@
+{
+  "matches": [
+    {
+      "import": "backend",
+      "file": "C:\\Users\\vikil\\Desktop\\Policy_Complice\\backend\\__init__.py",
+      "normalized_import": "backend",
+      "matched_declared": []
+    },
+    {
+      "import": "fitz",
+      "file": "C:\\Users\\vikil\\AppData\\Roaming\\Python\\Python314\\site-packages\\fitz\\__init__.py",
+      "normalized_import": "fitz",
+      "matched_declared": []
+    },
+    {
+      "import": "json_repair",
+      "file": "C:\\Users\\vikil\\Desktop\\Policy_Complice\\.venv\\Lib\\site-packages\\json_repair\\__init__.py",
+      "normalized_import": "json_repair",
+      "matched_declared": [
+        "json-repair"
+      ]
+    },
+    {
+      "import": "langchain_text_splitters",
+      "file": "C:\\Users\\vikil\\AppData\\Roaming\\Python\\Python314\\site-packages\\langchain_text_splitters\\__init__.py",
+      "normalized_import": "langchain_text_splitters",
+      "matched_declared": [
+        "langchain-text-splitters"
+      ]
+    },
+    {
+      "import": "pydantic_settings",
+      "file": "C:\\Users\\vikil\\AppData\\Roaming\\Python\\Python314\\site-packages\\pydantic_settings\\__init__.py",
+      "normalized_import": "pydantic_settings",
+      "matched_declared": [
+        "pydantic-settings"
+      ]
+    },
+    {
+      "import": "qdrant_client",
+      "file": "C:\\Users\\vikil\\AppData\\Roaming\\Python\\Python314\\site-packages\\qdrant_client\\__init__.py",
+      "normalized_import": "qdrant_client",
+      "matched_declared": [
+        "qdrant-client"
+      ]
+    },
+    {
+      "import": "rank_bm25",
+      "file": "C:\\Users\\vikil\\AppData\\Roaming\\Python\\Python314\\site-packages\\rank_bm25.py",
+      "normalized_import": "rank_bm25",
+      "matched_declared": [
+        "rank-bm25"
+      ]
+    },
+    {
+      "import": "sentence_transformers",
+      "file": "C:\\Users\\vikil\\AppData\\Roaming\\Python\\Python314\\site-packages\\sentence_transformers\\__init__.py",
+      "normalized_import": "sentence_transformers",
+      "matched_declared": [
+        "sentence-transformers"
+      ]
+    }
+  ],
+  "norm_decl": {
+    "pymupdf": "pymupdf",
+    "pydantic-settings": "pydantic_settings",
+    "pdfplumber": "pdfplumber",
+    "langgraph": "langgraph",
+    "pypdf": "pypdf",
+    "psycopg[binary]": "psycopg",
+    "rank-bm25": "rank_bm25",
+    "json-repair": "json_repair",
+    "email-validator": "email_validator",
+    "openai": "openai",
+    "qdrant-client": "qdrant_client",
+    "python-docx": "python_docx",
+    "fastapi": "fastapi",
+    "python-multipart": "python_multipart",
+    "sqlalchemy": "sqlalchemy",
+    "bcrypt": "bcrypt",
+    "uvicorn[standard]": "uvicorn",
+    "python-jose[cryptography]": "python_jose",
+    "alembic": "alembic",
+    "boto3": "boto3",
+    "pydantic": "pydantic",
+    "passlib[bcrypt]": "passlib",
+    "sentence-transformers": "sentence_transformers",
+    "langchain-text-splitters": "langchain_text_splitters"
+  }
+}

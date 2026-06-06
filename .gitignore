@@ -1,0 +1,33 @@
+# Keep only logs and tests ignored per request
+
+# Environment secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+debug.log
+
+# Tests
+tests/
+**/tests/
+*_test.py
+test_*.py
+
+# Local virtualenvs and Python caches
+.venv/
+venv/
+env/
+
+# Frontend dependencies and build cache
+node_modules/
+.next/
+
+# Runtime storage/debug artifacts
+storage/
+
+# pytest and python cache
+.pytest_cache/
+__pycache__/
