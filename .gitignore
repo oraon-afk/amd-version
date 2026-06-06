@@ -128,3 +128,7 @@ test/
 .DS_Store
 Thumbs.db
 .docktalk_ref/
+
+# Unignore backend app storage so source files are tracked
+!backend/app/storage/
+!backend/app/storage/**
