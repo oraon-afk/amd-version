@@ -8,10 +8,15 @@
 venv
 env
 __pycache__
+**/__pycache__
 *.pyc
+**/*.pyc
 .pytest_cache
+**/.pytest_cache
 .mypy_cache
+**/.mypy_cache
 .ruff_cache
+**/.ruff_cache
 *.log
 logs
 storage

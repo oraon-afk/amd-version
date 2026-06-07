@@ -12,12 +12,27 @@ if [ ! -f ".env" ]; then
   exit 1
 fi
 
-set -a
-# shellcheck source=/dev/null
-. ./.env
-set +a
+env_value() {
+  local name="$1"
+  local line value
+  line="$(grep -E "^[[:space:]]*${name}=" .env | tail -n 1 || true)"
+  if [ -z "$line" ]; then
+    return 0
+  fi
+  value="${line#*=}"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+    value="${value:1:${#value}-2}"
+  elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+    value="${value:1:${#value}-2}"
+  fi
+  printf '%s' "$value"
+}
 
+POSTGRES_USER="$(env_value POSTGRES_USER)"
 POSTGRES_USER="${POSTGRES_USER:-audit_user}"
+POSTGRES_DB="$(env_value POSTGRES_DB)"
 POSTGRES_DB="${POSTGRES_DB:-audit_compliance}"
 
 echo "Writing PostgreSQL backup to ${BACKUP_DIR}/postgres.sql"
