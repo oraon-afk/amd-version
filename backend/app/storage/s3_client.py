@@ -41,12 +41,15 @@ class S3Storage:
         if self._client is None:
             import boto3
 
-            self._client = boto3.client(
-                "s3",
-                region_name=settings.aws_region,
-                aws_access_key_id=settings.aws_access_key_id,
-                aws_secret_access_key=settings.aws_secret_access_key,
-            )
+            client_kwargs = {
+                "region_name": settings.aws_region,
+                "aws_access_key_id": settings.aws_access_key_id,
+                "aws_secret_access_key": settings.aws_secret_access_key,
+            }
+            if settings.minio_endpoint:
+                client_kwargs["endpoint_url"] = settings.minio_endpoint
+
+            self._client = boto3.client("s3", **client_kwargs)
         return self._client
 
     def check_connection(self) -> bool:

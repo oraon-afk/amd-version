@@ -8,6 +8,7 @@ from backend.app.db.models.audit import (
     ReportRecord,
 )
 from backend.app.db.models.batch import BatchDocument, RuleUploadBatch, RuleUploadBatchItem, UploadBatch
+from backend.app.db.models.collector import EvidenceCollector, ExternalEvidence
 from backend.app.db.models.digital_twin import (
     ComplianceDigitalTwin,
     ComplianceTwinPolicyProfile,
@@ -17,8 +18,10 @@ from backend.app.db.models.document import ComplianceDomain, DocumentChunk, Docu
 from backend.app.db.models.log import AuditLog
 from backend.app.db.models.rule import ComplianceRule, RuleDocument
 from backend.app.db.models.user import User
+from backend.app.db.models.webhook import ApiKey, Webhook, WebhookDelivery
 
 __all__ = [
+    "ApiKey",
     "AuditLog",
     "AuditReport",
     "AuditResult",
@@ -32,7 +35,9 @@ __all__ = [
     "DocumentChunk",
     "AuditRun",
     "BatchDocument",
+    "EvidenceCollector",
     "EvidenceLink",
+    "ExternalEvidence",
     "Finding",
     "RuleDocument",
     "RuleUploadBatch",
@@ -41,4 +46,6 @@ __all__ = [
     "UploadBatch",
     "UploadedDocument",
     "User",
+    "Webhook",
+    "WebhookDelivery",
 ]

@@ -50,3 +50,26 @@ export async function downloadReportPdf(auditId: string) {
   });
   return data;
 }
+
+export async function reviewFinding(
+  findingId: string,
+  payload: { action: string; comment?: string | null; modified_fields?: Record<string, any> | null }
+) {
+  const { data } = await apiClient.post(`/findings/${findingId}/review`, payload);
+  return data;
+}
+
+export async function publishReport(auditId: string) {
+  const { data } = await apiClient.post(`/reports/${auditId}/publish`);
+  return data;
+}
+
+export async function getReviewHistory(auditId: string) {
+  const { data } = await apiClient.get<Finding[]>(`/findings/${auditId}/review-history`);
+  return data;
+}
+
+export async function getFullDiagnostics(auditId: string) {
+  const { data } = await apiClient.get(`/audits/${auditId}/diagnostics/full`);
+  return data;
+}

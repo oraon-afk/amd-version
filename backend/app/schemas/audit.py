@@ -21,6 +21,13 @@ class AuditResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     created_at: datetime
+    review_deadline: datetime | None = None
+
+    @computed_field
+    @property
+    def has_pending_reviews(self) -> bool:
+        """True when the audit is in pending_review state."""
+        return self.status == "pending_review"
 
     model_config = {"from_attributes": True}
 
@@ -40,6 +47,13 @@ class FindingResponse(BaseModel):
     explanation: str
     recommendation: str
     created_at: datetime
+    # Feature 1: HITL review fields
+    needs_review: bool = False
+    review_status: str = "not_required"
+    is_active: bool = True
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
+    review_comment: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -161,6 +175,40 @@ class ComplianceScoreDiagnosticResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class FullDiagnosticsResponse(ComplianceScoreDiagnosticResponse):
+    """Feature 2: Extended response from GET /audits/{id}/diagnostics/full."""
+    retry_attempts: list[dict[str, Any]] | None = None
+    final_prompt: str | None = None
+    final_llm_response: str | None = None
+    context_chunks_snapshot: list[dict[str, Any]] | None = None
+    heuristic_confidence: float | None = None
+    blended_confidence: float | None = None
+
+
+# ── Feature 1: HITL schemas ──────────────────────────────────────────────────
+
+class FindingReviewRequest(BaseModel):
+    action: str  # "accept" | "reject" | "modify"
+    comment: str | None = None
+    modified_fields: dict[str, Any] | None = None
+
+
+class FindingReviewResponse(BaseModel):
+    finding_id: str
+    review_status: str
+    reviewed_by: str
+    reviewed_at: datetime
+    previous_state: dict[str, Any] | None = None
+
+
+class PublishReportResponse(BaseModel):
+    report_id: str
+    audit_id: str
+    status: str
+    published_at: datetime
+    download_urls: dict[str, str]
 
 
 def _read_number(payload: dict[str, Any], *keys: str, normalize_percent: bool = False) -> float | None:

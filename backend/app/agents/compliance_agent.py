@@ -54,6 +54,10 @@ class ComplianceAnalysis:
     summary: str
     findings: list[FindingDraft]
     raw_payload: dict[str, Any]
+    # Feature 2: Full diagnostic trail (one entry per LLM attempt)
+    diagnostic_trail: list[dict[str, Any]] | None = None
+    heuristic_confidence: float | None = None
+    blended_confidence: float | None = None
 
 
 @dataclass(frozen=True)
@@ -131,6 +135,8 @@ class ComplianceAgent:
         last_exc: Exception | None = None
         completed_attempt = 0
         profiles = self._analysis_attempt_profiles()
+        # Feature 2: Diagnostic trail – collects per-attempt metadata
+        diagnostic_trail: list[dict[str, Any]] = []
 
         for attempt, profile in enumerate(profiles, start=1):
             selected_rules = self._select_rule_results(
@@ -173,10 +179,32 @@ class ComplianceAgent:
                         "max_context_chars": profile.max_context_chars,
                     },
                 )
+                # Feature 2: record successful attempt
+                diagnostic_trail.append({
+                    "attempt": attempt,
+                    "rule_candidates": profile.rule_candidate_limit,
+                    "chunk_limit": profile.chunk_limit,
+                    "max_tokens": profile.max_tokens,
+                    "prompt": prompt[:4000],  # Cap at 4K chars to avoid DB bloat
+                    "llm_response_raw": str(raw_payload)[:4000],
+                    "error": None,
+                    "success": True,
+                })
                 completed_attempt = attempt
                 break
             except Exception as exc:
                 last_exc = exc
+                # Feature 2: record failed attempt
+                diagnostic_trail.append({
+                    "attempt": attempt,
+                    "rule_candidates": profile.rule_candidate_limit,
+                    "chunk_limit": profile.chunk_limit,
+                    "max_tokens": profile.max_tokens,
+                    "prompt": prompt[:4000],
+                    "llm_response_raw": None,
+                    "error": str(exc),
+                    "success": False,
+                })
                 retryable = is_retryable_llm_error(exc)
                 log_pipeline_stage(
                     logger,
@@ -261,6 +289,10 @@ class ComplianceAgent:
             summary=summary,
             findings=findings,
             raw_payload=normalized_payload,
+            # Feature 2: attach diagnostic trail
+            diagnostic_trail=diagnostic_trail if diagnostic_trail else None,
+            heuristic_confidence=float(sum(f.confidence_score for f in findings) / len(findings)) if findings else None,
+            blended_confidence=compliance_score,
         )
 
     def _build_rule_context(

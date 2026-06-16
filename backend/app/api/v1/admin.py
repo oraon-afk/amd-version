@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 import logging
 import math
 from time import time
@@ -54,6 +54,9 @@ class ComplianceRuleCreate(BaseModel):
     rule_text: str = Field(min_length=5)
     reference: str | None = None
     version: str = "v1"
+    custom_attributes: dict | None = None
+    effectivity_date: date | None = None
+    expiry_date: date | None = None
 
 
 class ComplianceRuleUpdate(BaseModel):
@@ -64,6 +67,13 @@ class ComplianceRuleUpdate(BaseModel):
     reference: str | None = None
     version: str | None = None
     status: str | None = None
+    custom_attributes: dict | None = None
+    effectivity_date: date | None = None
+    expiry_date: date | None = None
+
+
+class RuleTestRequest(BaseModel):
+    sample_document_text: str
 
 
 class RuleCategoryCreate(BaseModel):
@@ -487,6 +497,10 @@ def create_compliance_rule(
         reference=payload.reference,
         version=payload.version,
         created_by=current_user.id,
+        version_number=1,
+        custom_attributes=payload.custom_attributes,
+        effectivity_date=payload.effectivity_date,
+        expiry_date=payload.expiry_date,
     )
     db.add(rule)
     db.commit()
@@ -517,24 +531,95 @@ def update_compliance_rule(
     allowed_statuses = {"active", "archived"}
     if "status" in updates and updates["status"] not in allowed_statuses:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Rule status must be active or archived.")
-    for key, value in updates.items():
-        setattr(rule, key, value)
+
+    # Versioning logic:
+    # If the rule is updated, we archive the old row and create a new row with version_number + 1.
+    # But if the only change is status="archived" on an already active rule, we just archive the row.
+    only_status_archive = len(updates) == 1 and "status" in updates and updates["status"] == "archived"
+
+    if only_status_archive:
+        rule.status = "archived"
+        db.commit()
+        db.refresh(rule)
+        _upsert_manual_rule_vector(
+            rule=rule,
+            current_user=current_user,
+            source_type="archived_compliance_rule",
+        )
+        audit_log_service.log(
+            db=db,
+            user=current_user,
+            action="admin.compliance_rule.archived",
+            entity_type="compliance_rule",
+            entity_id=rule.id,
+            metadata={"status": rule.status},
+        )
+        return _compliance_rule_payload(rule)
+
+    # Archive the current rule
+    rule.status = "archived"
     db.commit()
     db.refresh(rule)
     _upsert_manual_rule_vector(
         rule=rule,
         current_user=current_user,
-        source_type="archived_compliance_rule" if rule.status == "archived" else "compliance_rule",
+        source_type="archived_compliance_rule",
     )
+
+    # Create new rule version
+    new_rule = ComplianceRule(
+        category=updates.get("category", rule.category),
+        title=updates.get("title", rule.title),
+        description=updates.get("description", rule.description),
+        rule_text=updates.get("rule_text", rule.rule_text),
+        reference=updates.get("reference", rule.reference),
+        version=updates.get("version", rule.version),
+        status=updates.get("status", "active"),
+        created_by=current_user.id,
+        version_number=rule.version_number + 1,
+        parent_rule_id=rule.id,
+        custom_attributes=updates.get("custom_attributes", rule.custom_attributes),
+        effectivity_date=updates.get("effectivity_date", rule.effectivity_date),
+        expiry_date=updates.get("expiry_date", rule.expiry_date),
+    )
+    db.add(new_rule)
+    db.commit()
+    db.refresh(new_rule)
+    _upsert_manual_rule_vector(rule=new_rule, current_user=current_user)
+
     audit_log_service.log(
         db=db,
         user=current_user,
         action="admin.compliance_rule.updated",
         entity_type="compliance_rule",
-        entity_id=rule.id,
-        metadata={"status": rule.status, "version": rule.version},
+        entity_id=new_rule.id,
+        metadata={"status": new_rule.status, "version_number": new_rule.version_number, "parent_id": rule.id},
     )
-    return _compliance_rule_payload(rule)
+    return _compliance_rule_payload(new_rule)
+
+
+@router.post("/compliance-rules/{rule_id}/test")
+def test_compliance_rule(
+    rule_id: str,
+    payload: RuleTestRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Test a compliance rule against sample text using the live evaluation pipeline."""
+    try:
+        from backend.app.services.rule_test_service import rule_test_service
+        return rule_test_service.test_rule(
+            db=db,
+            user=current_user,
+            rule_id=rule_id,
+            sample_document_text=payload.sample_document_text,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post("/compliance-rules/{rule_id}/archive")
@@ -1280,6 +1365,11 @@ def _compliance_rule_payload(rule: ComplianceRule) -> dict[str, Any]:
         "created_by": rule.created_by,
         "created_at": _dt(rule.created_at),
         "updated_at": _dt(rule.updated_at),
+        "version_number": rule.version_number,
+        "parent_rule_id": rule.parent_rule_id,
+        "custom_attributes": rule.custom_attributes,
+        "effectivity_date": rule.effectivity_date.isoformat() if rule.effectivity_date else None,
+        "expiry_date": rule.expiry_date.isoformat() if rule.expiry_date else None,
     }
 
 
@@ -1397,4 +1487,50 @@ def _empty_storage_summary() -> dict[str, dict[str, int]]:
         prefix.strip("/"): {"files": 0, "bytes": 0}
         for prefix, _bucket in _storage_prefix_targets()
         if prefix and prefix.strip("/")
+    }
+
+
+@router.get("/deployment/config")
+def get_deployment_config(
+    current_user: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Get the current deployment configuration with redacted secrets."""
+    return {
+        "mode": settings.deployment_mode,
+        "components": {
+            "vector_db": {
+                "type": "qdrant_local" if settings.local_qdrant_url else "qdrant_cloud",
+                "url": settings.local_qdrant_url or settings.qdrant_url,
+            },
+            "storage": {
+                "type": "minio" if settings.minio_endpoint else "aws_s3",
+                "endpoint": settings.minio_endpoint or "AWS S3 Cloud",
+            },
+            "embedding": {
+                "type": "local" if settings.local_embedding_model else "cloud",
+                "model": settings.local_embedding_model or settings.embedding_model,
+            },
+            "llm": {
+                "type": settings.primary_llm_provider,
+                "model": settings.primary_llm_model,
+            }
+        }
+    }
+
+
+@router.post("/deployment/reload")
+def reload_deployment_config(
+    current_user: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Reload deployment clients and config."""
+    # Reset cached singleton clients
+    from backend.app.rag.indexing.qdrant_store import qdrant_store
+    from backend.app.storage.s3_client import s3_storage
+    
+    qdrant_store._client = None
+    s3_storage._client = None
+    
+    return {
+        "status": "reloading",
+        "components_reloaded": ["qdrant_client", "s3_storage_client"]
     }

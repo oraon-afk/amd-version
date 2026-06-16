@@ -34,6 +34,7 @@ const workspaceSections = [
       { href: "/dashboard/audits", label: "Audit History", icon: ClipboardList },
       { href: "/dashboard/violations", label: "Findings", icon: ListChecks },
       { href: "/dashboard/evidence", label: "Evidence", icon: ShieldCheck },
+      { href: "/dashboard/evidence-collectors", label: "Evidence Collectors", icon: ClipboardList },
       { href: "/dashboard/reports", label: "Reports", icon: ScrollText },
     ],
   },

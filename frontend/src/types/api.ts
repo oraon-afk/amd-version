@@ -95,6 +95,9 @@ export type Audit = {
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
+  // Feature 1: HITL fields
+  review_deadline?: string | null;
+  has_pending_reviews?: boolean;
 };
 
 export type Finding = {
@@ -112,6 +115,14 @@ export type Finding = {
   explanation: string;
   recommendation: string;
   created_at: string;
+  // Feature 1: HITL fields
+  needs_review?: boolean;
+  review_status?: "pending" | "accepted" | "rejected" | "modified" | "not_required" | string;
+  is_active?: boolean;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  review_comment?: string | null;
+  original_finding_snapshot?: Record<string, any> | null;
 };
 
 export type Evidence = {
@@ -283,6 +294,29 @@ export type ComplianceRule = {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  // Feature 4: Rule versioning fields
+  version_number?: number | null;
+  parent_rule_id?: string | null;
+  custom_attributes?: Record<string, unknown> | null;
+  effectivity_date?: string | null;
+  expiry_date?: string | null;
+};
+
+export type RuleTestResult = {
+  rule_matched: boolean;
+  confidence: number;
+  matched_chunks: string[];
+  explanation: string;
+};
+
+export type DeploymentConfig = {
+  mode: "cloud" | "hybrid" | "onprem" | string;
+  components: {
+    vector_db?: { type: string; url: string };
+    storage?: { type: string; endpoint: string };
+    embedding?: { type: string; model: string };
+    llm?: { type: string; model: string };
+  };
 };
 
 export type ScoreDiagnostics = {

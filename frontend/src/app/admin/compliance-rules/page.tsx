@@ -1,9 +1,11 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, Edit3, ListChecks, Plus, Save, Trash2, X } from "lucide-react";
+import { Archive, Edit3, GitBranch, History, ListChecks, Plus, Save, Trash2, X } from "lucide-react";
 import { useState } from "react";
+import { BulkRuleImport } from "@/components/dashboard/BulkRuleImport";
 import { EmptyState } from "@/components/dashboard/EmptyState";
+import { RuleVersionHistory } from "@/components/dashboard/RuleVersionHistory";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/dashboard/PageHeader";
@@ -36,6 +38,7 @@ export default function AdminComplianceRulesPage() {
   const [ruleText, setRuleText] = useState("");
   const [newCategory, setNewCategory] = useState("");
   const [editingRule, setEditingRule] = useState<ComplianceRule | null>(null);
+  const [versionHistoryRule, setVersionHistoryRule] = useState<ComplianceRule | null>(null);
 
   const createRuleMutation = useMutation({
     mutationFn: () => createComplianceRule({ category, title, reference, version, rule_text: ruleText }),
@@ -105,6 +108,13 @@ export default function AdminComplianceRulesPage() {
         title="Rule Library"
         description="Build manual rules, organize categories, and manage the searchable rule library used by audit runs."
       />
+
+      {/* Version History Drawer */}
+      <RuleVersionHistory
+        rule={versionHistoryRule}
+        isOpen={!!versionHistoryRule}
+        onClose={() => setVersionHistoryRule(null)}
+      />
       <section className="grid gap-5 xl:grid-cols-[430px_1fr]">
         <div className="space-y-5">
           <Card>
@@ -144,6 +154,8 @@ export default function AdminComplianceRulesPage() {
               </Button>
             </CardContent>
           </Card>
+
+          <BulkRuleImport onImportComplete={() => queryClient.invalidateQueries({ queryKey: ["admin-compliance-rules"] })} />
         </div>
 
         <Card>
@@ -184,7 +196,7 @@ export default function AdminComplianceRulesPage() {
                     <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="break-words text-sm font-semibold">{rule.title}</div>
-                        <div className="mt-1 text-xs text-muted">{rule.reference ?? "No reference"} - {rule.version}</div>
+                        <div className="mt-1 text-xs text-muted">{rule.reference ?? "No reference"} - Version: {rule.version_number ?? 1} ({rule.version})</div>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <Badge variant={rule.status === "archived" ? "muted" : "cyan"}>{rule.status}</Badge>
@@ -195,6 +207,9 @@ export default function AdminComplianceRulesPage() {
                     <div className="mt-4 flex flex-wrap gap-2">
                       <Button size="sm" variant="secondary" onClick={() => setEditingRule(rule)}>
                         <Edit3 className="h-4 w-4" /> Edit
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={() => setVersionHistoryRule(rule)}>
+                        <History className="h-4 w-4" /> History
                       </Button>
                       <Button size="sm" variant="secondary" disabled={rule.status === "archived" || archiveRuleMutation.isPending} onClick={() => archiveRuleMutation.mutate(rule.id)}>
                         <Archive className="h-4 w-4" /> Archive

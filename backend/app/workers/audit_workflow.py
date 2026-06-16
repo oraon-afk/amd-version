@@ -250,6 +250,7 @@ class AuditWorkflow:
         started = time()
         persisted_findings = []
         for draft in drafts:
+            needs_review = draft.risk_level in ("HIGH", "CRITICAL") or draft.severity in ("HIGH", "CRITICAL")
             finding = Finding(
                 audit_id=audit.id,
                 document_id=document.id,
@@ -263,6 +264,9 @@ class AuditWorkflow:
                 citation_source=draft.citation_source,
                 explanation=draft.explanation,
                 recommendation=draft.recommendation,
+                # Feature 1: HITL
+                needs_review=needs_review,
+                review_status="pending" if needs_review else "not_required",
             )
             db.add(finding)
             db.flush()
@@ -303,7 +307,7 @@ class AuditWorkflow:
             if not finding_exists:
                 raise RuntimeError(f"Finding was not persisted before evidence insert: {finding.id}")
 
-            for evidence in evidence_agent.trace(finding=draft):
+            for evidence in evidence_agent.trace(finding=draft, db=db):
                 db.add(
                     EvidenceLink(
                         finding_id=finding.id,
@@ -442,6 +446,20 @@ class AuditWorkflow:
                 match_confidence=score_diagnostics["match_confidence"],
                 score_reasoning=score_diagnostics["score_reasoning"],
                 diagnostics_payload=score_diagnostics,
+                # Feature 2: full diagnostic trail
+                retry_attempts=getattr(analysis, "diagnostic_trail", None),
+                final_prompt=(
+                    analysis.diagnostic_trail[-1].get("prompt")
+                    if getattr(analysis, "diagnostic_trail", None)
+                    else None
+                ),
+                final_llm_response=(
+                    analysis.diagnostic_trail[-1].get("llm_response_raw")
+                    if getattr(analysis, "diagnostic_trail", None)
+                    else None
+                ),
+                heuristic_confidence=getattr(analysis, "heuristic_confidence", None),
+                blended_confidence=getattr(analysis, "blended_confidence", None),
             ),
         )
         db.add(
@@ -509,7 +527,15 @@ class AuditWorkflow:
         persisted_findings: list[Finding],
     ) -> None:
         started = time()
-        audit.status = "completed"
+        # Feature 1: HITL – if any finding requires review, do not complete yet
+        has_pending_reviews = any(
+            f.needs_review and f.review_status == "pending" for f in persisted_findings
+        )
+        if has_pending_reviews:
+            new_status = "pending_review"
+        else:
+            new_status = "completed"
+        audit.status = new_status
         document.upload_status = "completed"
         document.status = "completed"
         document.processing_stage = "completed"
@@ -539,6 +565,23 @@ class AuditWorkflow:
                 "overall_risk": audit.overall_risk,
             },
         )
+        # Feature 6: Dispatch webhook event
+        try:
+            from backend.app.services.webhook_service import webhook_dispatcher
+            event_name = "audit.pending_review" if new_status == "pending_review" else "audit.completed"
+            webhook_dispatcher.dispatch(
+                event=event_name,
+                data={
+                    "audit_id": audit.id,
+                    "document_id": document.id,
+                    "overall_risk": audit.overall_risk,
+                    "confidence_score": audit.confidence_score,
+                    "finding_count": len(persisted_findings),
+                },
+            )
+        except Exception as _wh_exc:
+            logger.warning("Webhook dispatch failed (non-fatal): %s", _wh_exc)
+
 
     def _mark_failed(self, *, db: Session, audit_id: str, document_id: str, error: str) -> None:
         started = time()
@@ -572,6 +615,19 @@ class AuditWorkflow:
             entity_id=audit_id,
             metadata={"document_id": document_id, "error": error},
         )
+        # Feature 6: Dispatch webhook event for audit failure
+        try:
+            from backend.app.services.webhook_service import webhook_dispatcher
+            webhook_dispatcher.dispatch(
+                event="audit.failed",
+                data={
+                    "audit_id": audit_id,
+                    "document_id": document_id,
+                    "error": error[:500] if error else None,
+                },
+            )
+        except Exception as _wh_exc:
+            logger.warning("Webhook dispatch failed (non-fatal): %s", _wh_exc)
 
     def _set_status(
         self,

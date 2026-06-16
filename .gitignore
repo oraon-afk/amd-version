@@ -1,33 +1,77 @@
-# Keep only logs and tests ignored per request
-
 # Environment secrets
 .env
 .env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 !.env.example
 
-# Logs
+# Python virtual environments (including custom 'moana')
+moana/
+.venv/
+venv/
+env/
+ENV/
+bin/
+lib/
+include/
+
+# Python caches and compiler files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# Frontend dependencies and build output
+node_modules/
+.next/
+out/
+build/
+.cache/
+.turbo/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime storage, logs, and temp files
+storage/
 logs/
 *.log
 debug.log
+tmp/
+temp/
 
-# Tests
+# IDE and Editor files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Tests (preserving existing rules for test exclusions)
 tests/
 **/tests/
 *_test.py
 test_*.py
-
-# Local virtualenvs and Python caches
-.venv/
-venv/
-env/
-
-# Frontend dependencies and build cache
-node_modules/
-.next/
-
-# Runtime storage/debug artifacts
-storage/
-
-# pytest and python cache
-.pytest_cache/
-__pycache__/

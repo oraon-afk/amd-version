@@ -9,13 +9,17 @@ import {
   FileText,
   FolderUp,
   Gauge,
+  Hammer,
   LayoutDashboard,
   ListChecks,
   LogOut,
   ScrollText,
+  Server,
   Settings,
   ShieldCheck,
+  ScanSearch,
   Users,
+  Webhook,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -37,6 +41,7 @@ const adminSections = [
       { href: "/admin/rules", label: "Upload Rule", icon: FileText },
       { href: "/admin/rules/bulk-upload", label: "Bulk Rule Upload", icon: FolderUp },
       { href: "/admin/compliance-rules", label: "Rule Library", icon: ListChecks },
+      { href: "/admin/rules/builder", label: "Rule Builder", icon: Hammer },
       { href: "/admin/rules/domains", label: "Domains", icon: Database },
       { href: "/admin/rules/versions", label: "Versions", icon: FileText },
     ],
@@ -57,8 +62,16 @@ const adminSections = [
     links: [{ href: "/admin/digital-twin", label: "Compliance Twin", icon: Gauge }],
   },
   {
+    label: "Evidence",
+    links: [
+      { href: "/admin/evidence-collectors", label: "Evidence Collectors", icon: ScanSearch },
+    ],
+  },
+  {
     label: "Administration",
     links: [
+      { href: "/admin/webhooks", label: "Webhooks & API Keys", icon: Webhook },
+      { href: "/admin/deployment", label: "Deployment", icon: Server },
       { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
       { href: "/admin/users", label: "Users", icon: Users },
       { href: "/admin/settings", label: "Settings", icon: Settings },

@@ -7,7 +7,9 @@ import {
   AuditLog,
   AuditReport,
   ComplianceRule,
+  DeploymentConfig,
   QdrantMonitoring,
+  RuleTestResult,
   RuleUploadBatch,
   RuleCategory,
   StorageMonitoring,
@@ -43,6 +45,9 @@ export type ComplianceRulePayload = {
   rule_text: string;
   reference?: string;
   version: string;
+  custom_attributes?: Record<string, unknown> | null;
+  effectivity_date?: string | null;
+  expiry_date?: string | null;
 };
 
 export type ComplianceRuleUpdatePayload = Partial<ComplianceRulePayload> & {
@@ -137,6 +142,23 @@ export async function archiveComplianceRule(ruleId: string) {
 
 export async function deleteComplianceRule(ruleId: string) {
   const { data } = await apiClient.delete<{ status: string; id: string }>(`/admin/compliance-rules/${ruleId}`);
+  return data;
+}
+
+export async function testComplianceRule(ruleId: string, sampleDocumentText: string) {
+  const { data } = await apiClient.post<RuleTestResult>(`/admin/compliance-rules/${ruleId}/test`, {
+    sample_document_text: sampleDocumentText,
+  });
+  return data;
+}
+
+export async function getDeploymentConfig() {
+  const { data } = await apiClient.get<DeploymentConfig>("/admin/deployment/config");
+  return data;
+}
+
+export async function reloadDeployment() {
+  const { data } = await apiClient.post<{ status: string; components_reloaded: string[] }>("/admin/deployment/reload");
   return data;
 }
 

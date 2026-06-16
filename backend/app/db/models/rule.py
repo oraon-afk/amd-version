@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, Uuid
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, JSON, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.session import Base
@@ -47,3 +47,9 @@ class ComplianceRule(Base):
     created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    # Feature 4: Configurable Rule Engine – versioning + custom attributes
+    version_number: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    parent_rule_id: Mapped[str | None] = mapped_column(Uuid(as_uuid=False), nullable=True)
+    custom_attributes: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    effectivity_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)

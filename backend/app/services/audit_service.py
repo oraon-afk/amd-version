@@ -128,6 +128,25 @@ class AuditService:
             return report
         return self.get_report(db=db, user=user, audit_id=id_or_audit_id)
 
+    def get_full_diagnostics(
+        self,
+        *,
+        db: Session,
+        user: User,
+        audit_id: str,
+    ) -> ComplianceScoreDiagnostic:
+        """Feature 2: Return extended diagnostics including prompt trail and LLM responses."""
+        self.get_audit(db=db, user=user, audit_id=audit_id)
+        diagnostics = db.scalar(
+            select(ComplianceScoreDiagnostic)
+            .where(ComplianceScoreDiagnostic.audit_id == audit_id)
+            .order_by(ComplianceScoreDiagnostic.created_at.desc()),
+        )
+        if diagnostics is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Score diagnostics not found.")
+        return diagnostics
+
+
     @staticmethod
     def _is_admin(user: User) -> bool:
         return (user.role or "").upper() == "ADMIN"

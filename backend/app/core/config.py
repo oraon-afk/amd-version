@@ -8,11 +8,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 OPENROUTER_PROVIDER = "openrouter"
 GROQ_PROVIDER = "groq"
 GEMINI_PROVIDER = "gemini"
+OLLAMA_PROVIDER = "ollama"
 GEMINI_PROVIDER_ALIASES = frozenset({"google", "google-gemini"})
 SUPPORTED_LLM_PROVIDERS = frozenset(
-    {OPENROUTER_PROVIDER, GROQ_PROVIDER, GEMINI_PROVIDER, *GEMINI_PROVIDER_ALIASES},
+    {OPENROUTER_PROVIDER, GROQ_PROVIDER, GEMINI_PROVIDER, OLLAMA_PROVIDER, *GEMINI_PROVIDER_ALIASES},
 )
-OPENAI_COMPATIBLE_PROVIDERS = frozenset({OPENROUTER_PROVIDER, GROQ_PROVIDER})
+OPENAI_COMPATIBLE_PROVIDERS = frozenset({OPENROUTER_PROVIDER, GROQ_PROVIDER, OLLAMA_PROVIDER})
 
 
 class Settings(BaseSettings):
@@ -28,6 +29,12 @@ class Settings(BaseSettings):
     app_host: str = "127.0.0.1"
     app_port: int = 8000
     debug: bool = False
+    deployment_mode: str = "cloud"  # "cloud" | "hybrid" | "onprem"
+    ollama_url: str | None = None
+    ollama_model: str | None = None
+    minio_endpoint: str | None = None
+    local_qdrant_url: str | None = None
+    local_embedding_model: str | None = None
     log_level: str = "INFO"
     api_v1_prefix: str = "/api/v1"
     cors_origins: str = "http://localhost:3000"
@@ -284,6 +291,8 @@ class Settings(BaseSettings):
             return self.groq_api_key
         if normalized == GEMINI_PROVIDER:
             return self.gemini_api_key
+        if normalized == OLLAMA_PROVIDER:
+            return "ollama-local-key"
         return None
 
     def provider_base_url(self, provider: str | None) -> str | None:
@@ -294,6 +303,8 @@ class Settings(BaseSettings):
             return self.groq_base_url
         if normalized == GEMINI_PROVIDER:
             return self.gemini_api_url
+        if normalized == OLLAMA_PROVIDER:
+            return self.ollama_url or "http://localhost:11434"
         return None
 
     def provider_model(self, provider: str | None) -> str | None:
@@ -304,6 +315,8 @@ class Settings(BaseSettings):
             return self.groq_model
         if normalized == GEMINI_PROVIDER:
             return self.gemini_model
+        if normalized == OLLAMA_PROVIDER:
+            return self.ollama_model or "llama2"
         return None
 
     def provider_fallback_model(self, provider: str | None) -> str | None:
@@ -314,6 +327,8 @@ class Settings(BaseSettings):
             return self.groq_fallback_model
         if normalized == GEMINI_PROVIDER:
             return self.gemini_fallback_model
+        if normalized == OLLAMA_PROVIDER:
+            return self.ollama_model or "llama2"
         return None
 
     def provider_configured(self, provider: str | None) -> bool:
@@ -335,6 +350,8 @@ class Settings(BaseSettings):
             return "GROQ_API_KEY", "GROQ_BASE_URL", "GROQ_MODEL"
         if normalized == GEMINI_PROVIDER:
             return "GEMINI_API_KEY", "GEMINI_API_URL", "GEMINI_MODEL"
+        if normalized == OLLAMA_PROVIDER:
+            return "OLLAMA_API_KEY", "OLLAMA_URL", "OLLAMA_MODEL"
         return "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL"
 
     def validate_startup_configuration(self) -> None:
@@ -482,6 +499,11 @@ class Settings(BaseSettings):
         "primary_llm_model",
         "secondary_llm_model",
         "tertiary_llm_model",
+        "ollama_url",
+        "ollama_model",
+        "minio_endpoint",
+        "local_qdrant_url",
+        "local_embedding_model",
         mode="before",
     )
     @classmethod

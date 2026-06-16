@@ -1,8 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useParams, usePathname, useRouter } from "next/navigation";
+import { ReviewWorkflowBadge } from "@/components/dashboard/ReviewWorkflowBadge";
+import { FindingsReviewPanel } from "@/components/dashboard/FindingsReviewPanel";
+import { ReviewHistoryDrawer } from "@/components/dashboard/ReviewHistoryDrawer";
+import { DiagnosticsDrawer } from "@/components/dashboard/DiagnosticsDrawer";
+import { publishReport } from "@/services/audits/audit-service";
 import {
   AlertCircle,
   ArrowLeft,
@@ -101,7 +106,7 @@ export default function ReportDetailPage() {
     refetchInterval: (query) => (isAuditActive(query.state.data?.status) ? 1500 : false),
   });
   const audit = auditQuery.data ?? null;
-  const reportReady = audit?.status === "completed";
+  const reportReady = audit?.status === "completed" || audit?.status === "pending_review";
   const reportQuery = useQuery({
     queryKey: ["report", auditId],
     queryFn: () => getReport(auditId),
@@ -140,6 +145,28 @@ export default function ReportDetailPage() {
   const aiSummary = getAiSummary(report);
   const keyRisks = getKeyRisks(findingViews);
   const recommendations = getRecommendations(report, findingViews);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"overview" | "review">("overview");
+
+  const publishMutation = useMutation({
+    mutationFn: () => publishReport(auditId),
+    onSuccess: () => {
+      toast({ title: "Report Published", description: "Report has been successfully finalized.", variant: "success" });
+      auditQuery.refetch();
+      findingsQuery.refetch();
+      reportQuery.refetch();
+      setActiveTab("overview");
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Publish failed",
+        description: err.response?.data?.detail || "An error occurred.",
+        variant: "error",
+      });
+    },
+  });
+
   const scoreDiagnostics = getScoreDiagnostics(report);
 
   useEffect(() => {
@@ -219,7 +246,12 @@ export default function ReportDetailPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="Compliance results"
+        eyebrow={
+          <div className="flex items-center gap-2">
+            <span>Compliance results</span>
+            {audit && <ReviewWorkflowBadge status={audit.status} />}
+          </div>
+        }
         title="Compliance Intelligence Report"
         description="Evidence-backed audit findings, policy matches, and remediation context from the backend analysis."
         actions={
@@ -227,6 +259,27 @@ export default function ReportDetailPage() {
             <Button type="button" variant="secondary" onClick={() => router.push(reportsPath)}>
               <ArrowLeft className="h-4 w-4" /> Compliance Results
             </Button>
+            {report && (
+              <Button onClick={() => setIsDiagnosticsOpen(true)} variant="secondary">
+                Show Diagnostics
+              </Button>
+            )}
+            {findings.some((f) => f.reviewed_at) && (
+              <Button onClick={() => setIsHistoryOpen(true)} variant="secondary">
+                Review History
+              </Button>
+            )}
+            {audit?.status === "pending_review" &&
+              findings.filter((f) => f.needs_review && f.review_status === "pending").length === 0 && (
+                <Button
+                  onClick={() => publishMutation.mutate()}
+                  disabled={publishMutation.isPending}
+                  variant="primary"
+                  className="bg-brand hover:bg-brand/90 text-white"
+                >
+                  Publish Report
+                </Button>
+              )}
             {report && (
               <ExportCenter
                 auditId={auditId}
@@ -264,29 +317,84 @@ export default function ReportDetailPage() {
             auditStatus={audit.status}
           />
 
-          <section className="grid gap-4 xl:grid-cols-[0.72fr_1.28fr]">
-            <AssessmentContext auditId={auditId} report={report} documentTitle={document?.title} documentDomain={document?.domain} />
-            <ExecutiveSummary
-              complianceStatus={complianceStatus}
-              complianceScore={complianceScore}
-              riskCounts={riskCounts}
-              keyRisks={keyRisks}
-              aiSummary={aiSummary}
+          {audit.status === "pending_review" && (
+            <div className="flex border-b border-line mb-6 gap-6">
+              <button
+                onClick={() => setActiveTab("overview")}
+                className={cn(
+                  "pb-3 text-sm font-semibold tracking-wider uppercase border-b-2 transition-all",
+                  activeTab === "overview"
+                    ? "border-brand text-brand"
+                    : "border-transparent text-muted hover:text-foreground"
+                )}
+              >
+                Overview & Details
+              </button>
+              <button
+                onClick={() => setActiveTab("review")}
+                className={cn(
+                  "pb-3 text-sm font-semibold tracking-wider uppercase border-b-2 transition-all flex items-center gap-1.5",
+                  activeTab === "review"
+                    ? "border-brand text-brand"
+                    : "border-transparent text-muted hover:text-foreground"
+                )}
+              >
+                Review Findings
+                <span className="bg-warning/20 text-warning px-1.5 py-0.5 rounded text-[10px] font-bold">
+                  {findings.filter((f) => f.needs_review && f.review_status === "pending").length}
+                </span>
+              </button>
+            </div>
+          )}
+
+          {activeTab === "review" && audit.status === "pending_review" ? (
+            <FindingsReviewPanel
+              auditId={auditId}
+              findings={findings}
+              onReviewComplete={() => {
+                auditQuery.refetch();
+                findingsQuery.refetch();
+                reportQuery.refetch();
+              }}
             />
-          </section>
+          ) : (
+            <>
+              <section className="grid gap-4 xl:grid-cols-[0.72fr_1.28fr]">
+                <AssessmentContext auditId={auditId} report={report} documentTitle={document?.title} documentDomain={document?.domain} />
+                <ExecutiveSummary
+                  complianceStatus={complianceStatus}
+                  complianceScore={complianceScore}
+                  riskCounts={riskCounts}
+                  keyRisks={keyRisks}
+                  aiSummary={aiSummary}
+                />
+              </section>
 
-          <section className="grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
-            <ComplianceScorePanel score={complianceScore} diagnostics={scoreDiagnostics} />
-            <RiskBreakdown riskCounts={riskCounts} />
-          </section>
+              <section className="grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
+                <ComplianceScorePanel score={complianceScore} diagnostics={scoreDiagnostics} />
+                <RiskBreakdown riskCounts={riskCounts} />
+              </section>
 
-          <EnterpriseFindingsSection findings={findingViews} onCopy={(view) => copyFindingBrief(view, toast)} />
+              <EnterpriseFindingsSection findings={findingViews} onCopy={(view) => copyFindingBrief(view, toast)} />
 
-          <EvidenceCards evidenceCards={buildEvidenceCards(findingViews)} onCopy={(card) => copyEvidenceCard(card, toast)} />
+              <EvidenceCards evidenceCards={buildEvidenceCards(findingViews)} onCopy={(card) => copyEvidenceCard(card, toast)} />
 
-          <RecommendedActions recommendations={recommendations} />
+              <RecommendedActions recommendations={recommendations} />
+            </>
+          )}
         </>
       )}
+
+      <ReviewHistoryDrawer
+        auditId={auditId}
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+      />
+      <DiagnosticsDrawer
+        auditId={auditId}
+        isOpen={isDiagnosticsOpen}
+        onClose={() => setIsDiagnosticsOpen(false)}
+      />
     </div>
   );
 }

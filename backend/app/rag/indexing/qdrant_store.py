@@ -39,11 +39,12 @@ class QdrantStore:
     @property
     def client(self) -> QdrantClient:
         if self._client is None:
-            if not settings.qdrant_url:
+            qdrant_url = settings.local_qdrant_url or settings.qdrant_url
+            if not qdrant_url:
                 raise RuntimeError("QDRANT_URL is required for Qdrant operations.")
             self._client = QdrantClient(
-                url=settings.qdrant_url,
-                api_key=settings.qdrant_api_key,
+                url=qdrant_url,
+                api_key=settings.qdrant_api_key if not settings.local_qdrant_url else None,
                 timeout=settings.qdrant_timeout_seconds,
             )
         return self._client

@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, Text, Uuid
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.session import Base
@@ -29,6 +29,8 @@ class AuditRun(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    # Feature 1: HITL – review deadline for pending_review state
+    review_deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Finding(Base):
@@ -48,6 +50,14 @@ class Finding(Base):
     explanation: Mapped[str] = mapped_column(Text, nullable=False)
     recommendation: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    # Feature 1: HITL review columns
+    needs_review: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    review_status: Mapped[str] = mapped_column(String(20), default="not_required", nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    reviewed_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    review_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    original_finding_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class EvidenceLink(Base):
@@ -90,6 +100,13 @@ class ComplianceScoreDiagnostic(Base):
     score_reasoning: Mapped[str] = mapped_column(Text, nullable=False)
     diagnostics_payload: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    # Feature 2: Full diagnostic trail columns
+    retry_attempts: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    final_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    final_llm_response: Mapped[str | None] = mapped_column(Text, nullable=True)
+    context_chunks_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    heuristic_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    blended_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class AuditResult(Base):

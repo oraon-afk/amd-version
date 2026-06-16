@@ -241,6 +241,24 @@ def _ensure_incremental_columns() -> None:
             "confidence": "FLOAT",
             "evidence_text": "TEXT",
             "citation_source": "TEXT",
+            "needs_review": "BOOLEAN DEFAULT FALSE",
+            "review_status": "VARCHAR(20) DEFAULT 'not_required'",
+            "is_active": "BOOLEAN DEFAULT TRUE",
+            "reviewed_by": "UUID",
+            "reviewed_at": "TIMESTAMP",
+            "review_comment": "TEXT",
+            "original_finding_snapshot": "JSONB",
+        },
+        "audit_runs": {
+            "review_deadline": "TIMESTAMP",
+        },
+        "compliance_score_diagnostics": {
+            "retry_attempts": "JSONB",
+            "final_prompt": "TEXT",
+            "final_llm_response": "TEXT",
+            "context_chunks_snapshot": "JSONB",
+            "heuristic_confidence": "FLOAT",
+            "blended_confidence": "FLOAT",
         },
         "rule_documents": {
             "category": "VARCHAR(100)",
@@ -303,6 +321,11 @@ def _ensure_incremental_columns() -> None:
         },
         "compliance_rules": {
             "status": "VARCHAR(50) DEFAULT 'active'",
+            "version_number": "INTEGER DEFAULT 1",
+            "parent_rule_id": "UUID",
+            "custom_attributes": "JSONB",
+            "effectivity_date": "DATE",
+            "expiry_date": "DATE",
         },
     }
     with engine.begin() as connection:
