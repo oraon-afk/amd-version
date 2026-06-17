@@ -6,7 +6,7 @@ logger = get_logger(__name__)
 
 class GeneratedRuleSchema(BaseModel):
     title: str = Field(description="A concise, descriptive title for the compliance rule.")
-    category: str = Field(description="Must be one of: HR, Security, Finance, Legal, Insurance, GDPR, Internal Policies")
+    category: str = Field(description="Must be one of: HR, Security, Finance, Legal, Insurance, GDPR, Internal Policies, Banking, Healthcare, HR-Policy")
     severity: str = Field(description="Must be one of: HIGH, MEDIUM, LOW")
     rule_text: str = Field(description="A precise, clear statement of what is required or prohibited.")
     description: str = Field(description="A short explanation of the context and purpose of the rule.")
@@ -20,7 +20,7 @@ class RuleGeneratorService:
             "and extract a structured compliance rule in JSON format matching the schema rules.\n"
             "The JSON object must have exactly the following keys:\n"
             "- 'title': string (concise, clear title)\n"
-            "- 'category': string (MUST be one of: 'HR', 'Security', 'Finance', 'Legal', 'Insurance', 'GDPR', 'Internal Policies')\n"
+            "- 'category': string (MUST be one of: 'HR', 'Security', 'Finance', 'Legal', 'Insurance', 'GDPR', 'Internal Policies', 'Banking', 'Healthcare', 'HR-Policy')\n"
             "- 'severity': string (MUST be one of: 'HIGH', 'MEDIUM', 'LOW')\n"
             "- 'rule_text': string (the core requirement rule text)\n"
             "- 'description': string (contextual background summary)\n"
@@ -53,7 +53,7 @@ class RuleGeneratorService:
                 validated = GeneratedRuleSchema(**llm_result)
                 
                 # Check category constraint
-                valid_categories = {'HR', 'Security', 'Finance', 'Legal', 'Insurance', 'GDPR', 'Internal Policies'}
+                valid_categories = {'HR', 'Security', 'Finance', 'Legal', 'Insurance', 'GDPR', 'Internal Policies', 'Banking', 'Healthcare', 'HR-Policy'}
                 category_normalized = validated.category.strip()
                 if category_normalized not in valid_categories:
                     # Fallback to closest or default

@@ -109,7 +109,13 @@ class GapAnalysisService:
             if best_match:
                 # Fetch matching rule from SQL
                 rule_id = best_match.payload.get("document_id")
-                rule = db.get(ComplianceRule, rule_id) if rule_id else None
+                rule = None
+                if rule_id:
+                    rule = db.get(ComplianceRule, rule_id)
+                    if not rule:
+                        rule = db.scalar(
+                            select(ComplianceRule).where(ComplianceRule.rule_document_id == rule_id)
+                        )
                 if rule:
                     matched_rule_data = {
                         "id": rule.id,
@@ -142,7 +148,7 @@ class GapAnalysisService:
             "You are an expert compliance architect. Write a suggested compliance rule that addresses the compliance control gap.\n"
             "You must respond with a JSON object containing exactly the following keys:\n"
             "- 'title': string (a short descriptive title)\n"
-            "- 'category': string (must be one of: 'HR', 'Security', 'Finance', 'Legal', 'Insurance', 'GDPR', 'Internal Policies')\n"
+            "- 'category': string (must be one of: 'HR', 'Security', 'Finance', 'Legal', 'Insurance', 'GDPR', 'Internal Policies', 'Banking', 'Healthcare', 'HR-Policy')\n"
             "- 'rule_text': string (the specific compliance rule requirement statement)\n"
             "- 'description': string (a brief explanation of what the rule requires)\n"
             "- 'reference': string (should be the control ID, e.g. 'SOC2 CC6.1' or 'HIPAA 164.312(a)(1)')\n"

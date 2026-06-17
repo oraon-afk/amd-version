@@ -218,7 +218,7 @@ class Settings(BaseSettings):
     )
     digital_twin_cache_ttl_seconds: int = Field(default=300, validation_alias=AliasChoices("DIGITAL_TWIN_CACHE_TTL_SECONDS"))
     allowed_file_types: str = "application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    rule_categories: str = "HR,Security,Finance,Legal,Insurance,GDPR,Internal Policies"
+    rule_categories: str = "HR,Security,Finance,Legal,Insurance,GDPR,Internal Policies,Banking,Healthcare,HR-Policy"
     default_admin_emails: str = ""
 
     @property

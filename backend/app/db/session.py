@@ -128,11 +128,35 @@ def check_database_connection(*, attempts: int | None = None, validate_hostname:
     return True
 
 
+def _seed_compliance_domains() -> None:
+    DEFAULT_DOMAINS = [
+        ("banking", "Banking, lending, KYC, and controls"),
+        ("finance", "Finance, procurement, and reporting controls"),
+        ("healthcare", "Healthcare privacy, safety, and operations"),
+        ("hr-policy", "Employee and HR policy compliance"),
+        ("legal", "Legal agreements and obligations"),
+        ("security", "Information security, network safety, and system controls"),
+    ]
+    with engine.begin() as connection:
+        for name, description in DEFAULT_DOMAINS:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO compliance_domains (id, name, description)
+                    VALUES (gen_random_uuid(), :name, :description)
+                    ON CONFLICT (name) DO UPDATE SET description = EXCLUDED.description
+                    """
+                ),
+                {"name": name, "description": description},
+            )
+
+
 def init_db() -> None:
     import backend.app.db.models  # noqa: F401
 
     _retry_database_operation(lambda: Base.metadata.create_all(bind=engine), label="database_create_all")
     _retry_database_operation(_ensure_incremental_columns, label="database_incremental_columns")
+    _retry_database_operation(_seed_compliance_domains, label="database_seed_compliance_domains")
 
 
 def recover_from_database_error(exc: BaseException) -> None:
