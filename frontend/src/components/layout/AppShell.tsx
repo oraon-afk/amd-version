@@ -61,7 +61,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <ShieldCheck className="h-5 w-5 text-white" />
           </div>
           <div>
-            <div className="text-sm font-semibold">Policy Complice AI</div>
+            <div className="text-sm font-semibold">AI Audit & Compliance Assistant</div>
             <div className="text-xs text-muted">Compliance Intelligence</div>
           </div>
         </div>

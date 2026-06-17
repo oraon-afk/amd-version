@@ -1,8 +1,8 @@
-# AI Audit Compliance Assistant – Enhancement Proposal
+# AI Audit & Compliance Assistant – Enhancement Proposal
 
 ## Extending the Platform to Address Market Gaps
 
-This document defines a set of **production‑ready functionalities** that build upon the existing AI Audit Compliance Assistant. Each feature directly targets a limitation of current commercial GRC platforms (Vanta, Drata, Sprinto, etc.) and provides a clear implementation roadmap – from frontend UI components to backend API contracts, database changes, and AI agent upgrades.
+This document defines a set of **production‑ready functionalities** that build upon the existing AI Audit & Compliance Assistant. Each feature directly targets a limitation of current commercial GRC platforms (Vanta, Drata, Sprinto, etc.) and provides a clear implementation roadmap – from frontend UI components to backend API contracts, database changes, and AI agent upgrades.
 
 ---
 
@@ -504,6 +504,6 @@ CREATE TABLE api_keys (
 
 ## Conclusion
 
-The six features outlined above directly address the most significant limitations of existing compliance automation platforms. By implementing **Human‑in‑the‑Loop**, **transparent diagnostics**, **agentic evidence collection**, a **configurable rule engine**, **on‑prem deployment**, and **open webhooks**, your AI Audit Compliance Assistant will not only match but surpass commercial alternatives in flexibility, trustworthiness, and regulatory readiness.
+The six features outlined above directly address the most significant limitations of existing compliance automation platforms. By implementing **Human‑in‑the‑Loop**, **transparent diagnostics**, **agentic evidence collection**, a **configurable rule engine**, **on‑prem deployment**, and **open webhooks**, your AI Audit & Compliance Assistant will not only match but surpass commercial alternatives in flexibility, trustworthiness, and regulatory readiness.
 
 Each feature is broken down into actionable frontend and backend tasks, complete with API contracts and database schemas. Prioritise Feature 1 (HITL) and Feature 2 (diagnostics) first, as they provide immediate compliance credibility. Then iterate on Features 3–6 based on user feedback and adoption patterns.

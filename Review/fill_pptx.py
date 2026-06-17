@@ -107,7 +107,7 @@ for shape in text_shapes:
             shape.text_frame.paragraphs[0].runs[0].text if shape.text_frame.paragraphs[0].runs else None
             tf = shape.text_frame
             if tf.paragraphs and tf.paragraphs[0].runs:
-                tf.paragraphs[0].runs[0].text = "Policy Complice AI — Team Vikilokhande"
+                tf.paragraphs[0].runs[0].text = "AI Audit & Compliance Assistant — Team Vikilokhande"
         elif top < 2_000_000:     # Team members / roles
             tf = shape.text_frame
             if tf.paragraphs and tf.paragraphs[0].runs:

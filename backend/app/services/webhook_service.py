@@ -99,7 +99,7 @@ class WebhookService:
         test_payload = {
             "event": "test",
             "timestamp": datetime.utcnow().isoformat(),
-            "data": {"message": "This is a test payload from AI Audit Compliance Assistant."},
+            "data": {"message": "This is a test payload from AI Audit & Compliance Assistant."},
         }
         delivery = webhook_dispatcher._send_once(webhook=webhook, payload=test_payload)
         db.add(delivery)

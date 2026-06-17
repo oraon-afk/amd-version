@@ -112,7 +112,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
           </div>
           <div>
             <div className="text-sm font-semibold">Admin Console</div>
-            <div className="text-xs text-muted">Policy Compliance AI</div>
+            <div className="text-xs text-muted">AI Audit & Compliance Assistant</div>
           </div>
         </div>
         <nav className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1 text-sm" aria-label="Administration navigation">

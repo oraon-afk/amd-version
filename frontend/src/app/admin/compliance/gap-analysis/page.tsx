@@ -18,13 +18,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
-import { createComplianceRule, runGapAnalysis } from "@/services/admin/admin-service";
+import { createComplianceRule, runGapAnalysis, listRuleCategories } from "@/services/admin/admin-service";
 import { getErrorMessage } from "@/services/api/client";
 
 export default function GapAnalysisPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [selectedFramework, setSelectedFramework] = useState<string>("SOC2");
+  const [selectedCategories, setSelectedCategories] = useState<Record<string, string>>({});
 
   const {
     data: gapReport,
@@ -36,6 +37,11 @@ export default function GapAnalysisPage() {
     queryKey: ["gap-analysis", selectedFramework],
     queryFn: () => runGapAnalysis(selectedFramework),
     enabled: true, // Run automatically on load for initial value
+  });
+
+  const categoriesQuery = useQuery({
+    queryKey: ["admin-rule-categories"],
+    queryFn: listRuleCategories,
   });
 
   const createRuleMutation = useMutation({
@@ -259,9 +265,6 @@ export default function GapAnalysisPage() {
                         <div>
                           <div className="text-sm font-semibold">{req.suggested_rule.title}</div>
                           <div className="mt-1 flex gap-2">
-                            <span className="text-[10px] text-cyan bg-cyan/10 px-1.5 py-0.5 rounded border border-cyan/20">
-                              {req.suggested_rule.category}
-                            </span>
                             <span className="text-[10px] text-muted/80">
                               Ref: {req.suggested_rule.reference}
                             </span>
@@ -272,15 +275,34 @@ export default function GapAnalysisPage() {
                         </p>
                       </div>
 
+                      {/* Domain Mapping Dropdown */}
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-semibold text-muted uppercase tracking-wider block">
+                          Target Domain Mapping:
+                        </label>
+                        <select
+                          value={selectedCategories[req.control_id] ?? (categoriesQuery.data?.find((c) => c.name.toLowerCase() === req.suggested_rule!.category.toLowerCase())?.name ?? req.suggested_rule.category)}
+                          onChange={(e) => setSelectedCategories((prev) => ({ ...prev, [req.control_id]: e.target.value }))}
+                          className="h-9 w-full rounded border border-line bg-elevated/75 px-2 text-xs outline-none focus:border-cyan/50 text-cyan font-medium transition cursor-pointer"
+                        >
+                          {(categoriesQuery.data ?? []).map((item) => (
+                            <option key={item.id ?? item.name} value={item.name} className="text-foreground bg-panel">
+                              {item.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
                       <Button
                         size="sm"
                         className="w-full bg-cyan hover:bg-cyan/90 text-background font-semibold"
                         disabled={createRuleMutation.isPending}
                         onClick={() => {
                           if (!req.suggested_rule) return;
+                          const targetCategory = selectedCategories[req.control_id] ?? (categoriesQuery.data?.find((c) => c.name.toLowerCase() === req.suggested_rule!.category.toLowerCase())?.name ?? req.suggested_rule.category);
                           createRuleMutation.mutate({
                             title: req.suggested_rule.title,
-                            category: req.suggested_rule.category,
+                            category: targetCategory,
                             rule_text: req.suggested_rule.rule_text,
                             reference: req.suggested_rule.reference,
                             version: "v1",

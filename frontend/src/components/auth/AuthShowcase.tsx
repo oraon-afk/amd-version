@@ -26,7 +26,7 @@ export function AuthShowcase({ mode }: { mode: "login" | "register" }) {
               <ShieldCheck className="h-5 w-5 text-white" />
             </div>
             <div>
-              <div className="font-semibold">Policy Complice AI</div>
+              <div className="font-semibold">AI Audit & Compliance Assistant</div>
               <div className="text-xs text-muted">Enterprise compliance intelligence</div>
             </div>
           </div>

@@ -9,7 +9,7 @@
 ## 1. Introduction
 
 ### 1.1 Background
-The **AI-Driven Audit & Compliance Assistant (AACA)** is an enterprise GRC platform that automates policy evaluation against regulatory frameworks (GDPR, HIPAA, SOC2, PCI-DSS). Built with Next.js 15 and FastAPI, it leverages RAG, LLMs (via OpenRouter/Gemini/Ollama), and hybrid storage (PostgreSQL, Qdrant, S3/MinIO).
+The **AI Audit & Compliance Assistant (AACA)** is an enterprise GRC platform that automates policy evaluation against regulatory frameworks (GDPR, HIPAA, SOC2, PCI-DSS). Built with Next.js 15 and FastAPI, it leverages RAG, LLMs (via OpenRouter/Gemini/Ollama), and hybrid storage (PostgreSQL, Qdrant, S3/MinIO).
 
 ### 1.2 Objective
 This RFP seeks proposals to enhance AACA with a set of AI‑powered business features and foundational improvements that:

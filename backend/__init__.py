@@ -1,2 +1,2 @@
-"""Backend package for the AI audit compliance assistant."""
+"""Backend package for the AI Audit & Compliance Assistant."""
 

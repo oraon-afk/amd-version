@@ -24,7 +24,7 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    app_name: str = "AI-Driven Audit & Compliance Assistant"
+    app_name: str = "AI Audit & Compliance Assistant"
     app_env: str = "development"
     app_host: str = "127.0.0.1"
     app_port: int = 8000

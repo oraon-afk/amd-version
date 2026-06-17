@@ -1,6 +1,6 @@
 # Architecture Documentation Index
 
-This folder contains the complete architecture package for the AI-Driven Audit & Compliance Assistant with Evidence Tracing.
+This folder contains the complete architecture package for the AI Audit & Compliance Assistant with Evidence Tracing.
 
 ## Requested Output Mapping
 

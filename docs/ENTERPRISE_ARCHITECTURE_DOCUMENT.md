@@ -1,4 +1,4 @@
-# AI-Driven Audit & Compliance Assistant — Enterprise Architecture Document
+# AI Audit & Compliance Assistant — Enterprise Architecture Document
 
 **Version:** 1.0.0  
 **Classification:** Internal — Engineering  
@@ -38,7 +38,7 @@
 ## 1. Executive Summary
 
 ### 1.1 Problem Statement
-
+    
 Enterprises across regulated industries — financial services, insurance, healthcare, legal, and technology — face an escalating compliance burden. Manual audit processes are:
 
 - **Time-intensive**: A single compliance audit can take 40–160 person-hours, requiring domain experts to cross-reference policy documents against regulatory frameworks line by line.
@@ -48,7 +48,7 @@ Enterprises across regulated industries — financial services, insurance, healt
 
 ### 1.2 Solution Overview
 
-The **AI-Driven Audit & Compliance Assistant** is an enterprise-grade platform that automates the compliance validation lifecycle. It ingests policy documents and regulatory rules, performs hybrid Retrieval-Augmented Generation (RAG) analysis, and produces explainable, evidence-traced audit reports with confidence scoring and risk assessment.
+The **AI Audit & Compliance Assistant** is an enterprise-grade platform that automates the compliance validation lifecycle. It ingests policy documents and regulatory rules, performs hybrid Retrieval-Augmented Generation (RAG) analysis, and produces explainable, evidence-traced audit reports with confidence scoring and risk assessment.
 
 The platform replaces manual compliance review with an intelligent, multi-agent AI pipeline that:
 
@@ -2725,4 +2725,4 @@ gantt
 
 *This document is a living artifact. Update it as the architecture evolves.*
 
-*© 2026 AI-Driven Audit & Compliance Assistant — Internal Engineering Documentation*
+*© 2026 AI Audit & Compliance Assistant — Internal Engineering Documentation*

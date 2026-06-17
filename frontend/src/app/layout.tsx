@@ -4,7 +4,7 @@ import { Providers } from "./providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AI Audit Compliance Assistant",
+  title: "AI Audit & Compliance Assistant",
   description: "Enterprise compliance validation with evidence tracing.",
 };
 
