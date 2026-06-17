@@ -69,13 +69,13 @@ class AuditService:
 
     def list_audits(self, *, db: Session, user: User) -> list[AuditRun]:
         statement = select(AuditRun).order_by(AuditRun.created_at.desc())
-        if not self._is_admin(user):
+        if not self._is_privileged(user):
             statement = statement.where(AuditRun.user_id == user.id)
         return list(db.scalars(statement))
 
     def get_audit(self, *, db: Session, user: User, audit_id: str) -> AuditRun:
         statement = select(AuditRun).where(AuditRun.id == audit_id)
-        if not self._is_admin(user):
+        if not self._is_privileged(user):
             statement = statement.where(AuditRun.user_id == user.id)
         audit = db.scalar(statement)
         if audit is None:
@@ -147,13 +147,16 @@ class AuditService:
         return diagnostics
 
 
+    def _is_privileged(self, user: User) -> bool:
+        return (user.role or "").upper() in {"ADMIN", "REVIEWER"}
+
     @staticmethod
     def _is_admin(user: User) -> bool:
         return (user.role or "").upper() == "ADMIN"
 
     def _get_accessible_document(self, *, db: Session, user: User, document_id: str) -> UploadedDocument | None:
         statement = select(UploadedDocument).where(UploadedDocument.id == document_id)
-        if not self._is_admin(user):
+        if not self._is_privileged(user):
             statement = statement.where(UploadedDocument.user_id == user.id)
         return db.scalar(statement)
 

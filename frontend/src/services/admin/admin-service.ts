@@ -191,3 +191,28 @@ export async function getQdrantMonitoring() {
   const { data } = await apiClient.get<QdrantMonitoring>("/admin/qdrant");
   return data;
 }
+
+export async function generateRuleFromText(description: string) {
+  const { data } = await apiClient.post<{
+    title: string;
+    category: string;
+    severity: string;
+    rule_text: string;
+    description: string;
+    reference: string;
+  }>("/admin/compliance-rules/generate-from-text", { description });
+  return data;
+}
+
+export async function runGapAnalysis(framework: string) {
+  const { data } = await apiClient.post<Array<{
+    control_id: string;
+    title: string;
+    description: string;
+    status: "COVERED" | "PARTIAL" | "MISSING";
+    match_score: number;
+    matched_rule: { id: string; title: string; rule_text: string; category: string; reference: string } | null;
+    suggested_rule: { title: string; category: string; rule_text: string; description: string; reference: string } | null;
+  }>>("/admin/gap-analysis", { framework });
+  return data;
+}

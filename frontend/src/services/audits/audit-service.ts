@@ -73,3 +73,94 @@ export async function getFullDiagnostics(auditId: string) {
   const { data } = await apiClient.get(`/audits/${auditId}/diagnostics/full`);
   return data;
 }
+
+export async function getFindingExplanation(findingId: string) {
+  const { data } = await apiClient.get<{
+    finding_id: string;
+    explanation_text: string;
+    evidence_list: Array<{ text: string; page?: number | null; section?: string | null }>;
+    confidence_score: number;
+  }>(`/findings/${findingId}/explanation`);
+  return data;
+}
+
+export async function getRemediationPlan(findingId: string) {
+  const { data } = await apiClient.get<{
+    id: string;
+    finding_id: string;
+    steps: string[];
+    estimated_effort_hours: number;
+    priority: string;
+    suggested_owner_role: string;
+    approved: boolean;
+    created_at: string;
+  }>(`/findings/${findingId}/remediation-plan`);
+  return data;
+}
+
+export async function updateRemediationPlan(findingId: string, payload: {
+  steps?: string[];
+  estimated_effort_hours?: number;
+  priority?: string;
+  suggested_owner_role?: string;
+  approved?: boolean;
+}) {
+  const { data } = await apiClient.put<{
+    id: string;
+    finding_id: string;
+    steps: string[];
+    estimated_effort_hours: number;
+    priority: string;
+    suggested_owner_role: string;
+    approved: boolean;
+    created_at: string;
+  }>(`/findings/${findingId}/remediation-plan`, payload);
+  return data;
+}
+
+export type CustomReport = {
+  id: string;
+  audit_id: string;
+  template: string;
+  sections: string[];
+  generated_json: {
+    title: string;
+    metadata: {
+      audit_id: string;
+      document_title: string;
+      template: string;
+      generated_at: string;
+      overall_risk: string;
+      compliance_score: number;
+      total_findings: number;
+      high_severity: number;
+      medium_severity: number;
+      low_severity: number;
+    };
+    sections: Record<string, string>;
+  };
+  created_at: string;
+};
+
+export async function generateCustomReport(auditId: string, payload: { template: string; sections: string[] }) {
+  const { data } = await apiClient.post<CustomReport>(`/reports/${auditId}/custom`, payload);
+  return data;
+}
+
+export async function getCustomReport(reportId: string) {
+  const { data } = await apiClient.get<CustomReport>(`/reports/custom/${reportId}`);
+  return data;
+}
+
+export async function updateCustomReport(reportId: string, payload: { generated_json: any }) {
+  const { data } = await apiClient.put<CustomReport>(`/reports/custom/${reportId}`, payload);
+  return data;
+}
+
+export async function downloadCustomReport(reportId: string, format: string) {
+  const { data } = await apiClient.get<Blob>(`/reports/custom/${reportId}/download/${format}`, {
+    responseType: "blob",
+  });
+  return data;
+}
+

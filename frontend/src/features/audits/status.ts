@@ -9,6 +9,7 @@ export type WorkflowStage =
   | "reranking"
   | "analyzing"
   | "generating_report"
+  | "pending_review"
   | "completed"
   | "failed";
 
@@ -34,6 +35,9 @@ function mapStatus(status?: string | null): WorkflowStage | null {
   if (!normalized) return null;
   if (normalized === "failed" || normalized === "error") return "failed";
   if (normalized === "completed" || normalized === "complete") return "completed";
+  if (normalized === "pending_review" || normalized === "review_pending" || normalized === "review") {
+    return "pending_review";
+  }
   if (normalized === "generating_report" || normalized === "reporting" || normalized === "report_generation") {
     return "generating_report";
   }

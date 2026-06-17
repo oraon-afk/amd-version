@@ -24,6 +24,7 @@ import {
   createComplianceRule,
   listRuleCategories,
   testComplianceRule,
+  generateRuleFromText,
 } from "@/services/admin/admin-service";
 import { getErrorMessage } from "@/services/api/client";
 import { RuleTestResult } from "@/types/api";
@@ -36,6 +37,12 @@ export default function RuleBuilderPage() {
     queryKey: ["admin-rule-categories"],
     queryFn: listRuleCategories,
   });
+
+  // AI Generator state
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [severity, setSeverity] = useState("");
 
   // Rule fields
   const [category, setCategory] = useState("");
@@ -58,6 +65,33 @@ export default function RuleBuilderPage() {
     title.trim().length >= 2 &&
     ruleText.trim().length >= 5;
 
+  const handleGenerateWithAi = async () => {
+    if (!aiPrompt.trim()) return;
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const result = await generateRuleFromText(aiPrompt.trim());
+      setCategory(result.category);
+      setTitle(result.title);
+      setRuleText(result.rule_text);
+      setReference(result.reference);
+      setSeverity(result.severity);
+      toast({
+        title: "AI Rule Generated",
+        description: "Form has been populated with rule structure. Please review and save.",
+      });
+    } catch (err: any) {
+      setAiError(err.response?.data?.detail || "AI generation failed. Fallback to manual entry is active.");
+      toast({
+        title: "AI Generation Failed",
+        description: "Failed to generate rule. Fallback mode is active.",
+        variant: "error",
+      });
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   const createMutation = useMutation({
     mutationFn: () =>
       createComplianceRule({
@@ -66,10 +100,10 @@ export default function RuleBuilderPage() {
         rule_text: ruleText.trim(),
         reference: reference.trim() || undefined,
         version: "v1",
-        custom_attributes:
-          jurisdiction.trim()
-            ? { jurisdiction: jurisdiction.trim() }
-            : undefined,
+        custom_attributes: {
+          ...(jurisdiction.trim() ? { jurisdiction: jurisdiction.trim() } : {}),
+          ...(severity.trim() ? { severity: severity.trim() } : {}),
+        },
         effectivity_date: effectivityDate || undefined,
         expiry_date: expiryDate || undefined,
       }),
@@ -125,14 +159,68 @@ export default function RuleBuilderPage() {
       />
 
       <div className="grid gap-6 xl:grid-cols-2">
-        {/* ── Left: Rule Form ─────────────────────────────────────── */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BookOpen className="h-4 w-4 text-cyan" />
-              Define Rule
-            </CardTitle>
-          </CardHeader>
+        {/* ── Left: Rule Form & AI Generator ──────────────────────── */}
+        <div className="space-y-6">
+          {/* AI Generator Card */}
+          <Card className="border-brand/30 bg-brand/5 shadow-[0_0_15px_rgba(124,77,255,0.08)]">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-brand">
+                <Sparkles className="h-4 w-4 text-warning" />
+                AI-Powered Rule Generator
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-muted leading-relaxed">
+                Describe your compliance requirement in plain English. AI will structure the title, category, control statement, and standard references automatically.
+              </p>
+              <Textarea
+                placeholder="Type your plain text compliance requirement (e.g. password complexity requirements, encryption policies)..."
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                rows={2}
+                className="text-xs"
+              />
+              <Button
+                size="sm"
+                variant="default"
+                className="w-full bg-brand hover:bg-brand/90 text-white text-xs py-1.5"
+                disabled={aiLoading || !aiPrompt.trim()}
+                onClick={handleGenerateWithAi}
+              >
+                {aiLoading ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                    Generating structured rule...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-3 w-3 mr-1" />
+                    Generate Rule Structure
+                  </>
+                )}
+              </Button>
+
+              {aiError && (
+                <div className="p-3.5 rounded bg-critical/10 border border-critical/20 text-[11px] text-critical space-y-1">
+                  <div className="font-semibold flex items-center gap-1.5">
+                    <XCircle className="h-3.5 w-3.5" /> AI Generation Failed
+                  </div>
+                  <p className="text-muted leading-normal">{aiError}</p>
+                  <p className="text-muted-foreground font-bold mt-1">
+                    Fallback mode active: You can write the rule manually below.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BookOpen className="h-4 w-4 text-cyan" />
+                Define Rule
+              </CardTitle>
+            </CardHeader>
           <CardContent className="space-y-4">
             {/* Category */}
             <div className="space-y-1">
@@ -255,6 +343,7 @@ export default function RuleBuilderPage() {
             )}
           </CardContent>
         </Card>
+      </div>
 
         {/* ── Right: Test Panel ─────────────────────────────────── */}
         <Card>

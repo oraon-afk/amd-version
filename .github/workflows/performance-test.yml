@@ -1,0 +1,75 @@
+name: Performance Regression Benchmarks
+
+on:
+  push:
+    branches: [ main, master, dev ]
+  pull_request:
+    branches: [ main, master, dev ]
+
+jobs:
+  performance-benchmarks:
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install locust pytest pytest-asyncio
+
+      - name: Start AACA Backend Application
+        env:
+          DATABASE_URL: sqlite:///./test_perf.db
+          JWT_SECRET_KEY: test-performance-secret-key-very-long-and-secure
+          REDIS_URL: redis://localhost:6379/0
+          ENABLE_CACHING: "true"
+          DEPLOYMENT_MODE: cloud
+          # Provide mock settings for S3 / Qdrant to satisfy validation but skip actual connection if bypassed
+          AWS_ACCESS_KEY_ID: mock-key
+          AWS_SECRET_ACCESS_KEY: mock-secret
+          AWS_REGION: us-east-1
+          S3_BUCKET: mock-bucket
+          QDRANT_URL: http://localhost:6333
+          QDRANT_API_KEY: mock-qdrant-key
+        run: |
+          # Start uvicorn server in background
+          python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 &
+          # Wait for backend to be healthy
+          for i in {1..20}; do
+            curl -s http://127.0.0.1:8000/api/v1/health && break
+            echo "Waiting for backend..."
+            sleep 2
+          done
+
+      - name: Run Locust Performance Benchmark tests
+        run: |
+          python tests/performance/run_perf_tests.py
+
+      - name: Archive Performance CSV Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-test-results
+          path: |
+            tests/performance/results_stats.csv
+            tests/performance/results_failures.csv

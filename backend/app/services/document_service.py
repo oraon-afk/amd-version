@@ -234,6 +234,17 @@ class DocumentService:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Database failed to save uploaded document metadata.",
             ) from exc
+
+        # Invalidate document list cache for user
+        from backend.app.services.cache_service import cache_service
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                loop.create_task(cache_service.delete(f"cache:documents:list:{user.id}"))
+        except RuntimeError:
+            pass
+
         return document
 
     def list_documents(self, *, db: Session, user: User) -> list[UploadedDocument]:
@@ -244,6 +255,35 @@ class DocumentService:
                 .order_by(UploadedDocument.created_at.desc()),
             ),
         )
+
+    async def list_documents_cached(self, *, db: Session, user: User) -> list[dict]:
+        from backend.app.services.cache_service import cache_service
+        cache_key = f"cache:documents:list:{user.id}"
+        cached = await cache_service.get(cache_key)
+        if cached is not None:
+            return cached
+
+        docs = self.list_documents(db=db, user=user)
+        from backend.app.schemas.document import DocumentResponse
+        payload = [DocumentResponse.model_validate(doc).model_dump(mode="json") for doc in docs]
+        await cache_service.set(cache_key, payload, ttl=60)
+        return payload
+
+    async def get_document_cached(self, *, db: Session, document_id: str) -> dict | None:
+        from backend.app.services.cache_service import cache_service
+        cache_key = f"cache:documents:get:{document_id}"
+        cached = await cache_service.get(cache_key)
+        if cached is not None:
+            return cached
+
+        doc = db.get(UploadedDocument, document_id)
+        if doc is None:
+            return None
+
+        from backend.app.schemas.document import DocumentResponse
+        payload = DocumentResponse.model_validate(doc).model_dump(mode="json")
+        await cache_service.set(cache_key, payload, ttl=60)
+        return payload
 
     def list_domains(self, *, db: Session) -> list[ComplianceDomain]:
         return list(db.scalars(select(ComplianceDomain).order_by(ComplianceDomain.name.asc())))

@@ -55,6 +55,7 @@ const adminSections = [
       { href: "/admin/compliance/findings", label: "Findings", icon: ListChecks },
       { href: "/admin/compliance/evidence", label: "Evidence", icon: FileSearch },
       { href: "/admin/compliance/reports", label: "Reports", icon: ScrollText },
+      { href: "/admin/compliance/gap-analysis", label: "Gap Analysis", icon: ScanSearch },
     ],
   },
   {
@@ -83,6 +84,24 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
 
+  const filteredSections = adminSections
+    .map((section) => {
+      if (user?.role?.toUpperCase() === "REVIEWER") {
+        if (section.label === "Rule Management") {
+          return null;
+        }
+        if (section.label === "Administration") {
+          const filteredLinks = section.links.filter(
+            (link) => link.href === "/admin/settings"
+          );
+          if (filteredLinks.length === 0) return null;
+          return { ...section, links: filteredLinks };
+        }
+      }
+      return section;
+    })
+    .filter(Boolean) as typeof adminSections;
+
   return (
     <div className="relative min-h-screen bg-background bg-app-radial text-foreground">
       <CosmicBackground />
@@ -93,11 +112,11 @@ export function AdminShell({ children }: { children: ReactNode }) {
           </div>
           <div>
             <div className="text-sm font-semibold">Admin Console</div>
-            <div className="text-xs text-muted">Policy Complice AI</div>
+            <div className="text-xs text-muted">Policy Compliance AI</div>
           </div>
         </div>
         <nav className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1 text-sm" aria-label="Administration navigation">
-          {adminSections.map((section) => (
+          {filteredSections.map((section) => (
             <div key={section.label}>
               <div className="mb-2 px-3 text-[11px] font-semibold uppercase text-muted">{section.label}</div>
               <div className="space-y-1">
@@ -127,11 +146,13 @@ export function AdminShell({ children }: { children: ReactNode }) {
             <div className="break-words text-sm font-semibold md:text-base">Rule Management, Compliance Intelligence, Users, and Storage</div>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/admin/rules">
-              <Button variant="secondary" size="sm">
-                <Database className="h-4 w-4" /> Rule Upload
-              </Button>
-            </Link>
+            {user?.role?.toUpperCase() !== "REVIEWER" && (
+              <Link href="/admin/rules">
+                <Button variant="secondary" size="sm">
+                  <Database className="h-4 w-4" /> Rule Upload
+                </Button>
+              </Link>
+            )}
             <Button onClick={logout} variant="secondary" size="sm">
               <LogOut className="h-4 w-4" /> Sign out
             </Button>
@@ -139,7 +160,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         </header>
         <div className="border-b border-line bg-panel/80 p-2 lg:hidden">
           <div className="flex gap-2 overflow-x-auto">
-            {adminSections.flatMap((section) => section.links.map((item) => ({ ...item, section: section.label }))).map((item) => (
+            {filteredSections.flatMap((section) => section.links.map((item) => ({ ...item, section: section.label }))).map((item) => (
               <Link key={`${item.section}-${item.href}-${item.label}`} href={item.href} className="shrink-0 rounded-lg border border-line bg-elevated px-3 py-2 text-xs">
                 {item.label}
               </Link>

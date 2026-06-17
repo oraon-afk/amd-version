@@ -51,3 +51,13 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
             detail="Admin access is required.",
         )
     return current_user
+
+
+def require_privileged(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role.upper() not in {"ADMIN", "REVIEWER"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin or Reviewer access is required.",
+        )
+    return current_user
+

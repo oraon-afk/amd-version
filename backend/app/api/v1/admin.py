@@ -59,6 +59,10 @@ class ComplianceRuleCreate(BaseModel):
     expiry_date: date | None = None
 
 
+class GenerateRuleFromTextRequest(BaseModel):
+    description: str = Field(min_length=5)
+
+
 class ComplianceRuleUpdate(BaseModel):
     category: str | None = Field(default=None, min_length=2, max_length=100)
     title: str | None = Field(default=None, min_length=2, max_length=255)
@@ -74,6 +78,10 @@ class ComplianceRuleUpdate(BaseModel):
 
 class RuleTestRequest(BaseModel):
     sample_document_text: str
+
+
+class GapAnalysisRequest(BaseModel):
+    framework: str = Field(min_length=3, max_length=20)
 
 
 class RuleCategoryCreate(BaseModel):
@@ -235,7 +243,7 @@ async def upload_admin_document(
 
 
 @router.delete("/document/{document_id}")
-def delete_document(
+async def delete_document(
     document_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -252,6 +260,10 @@ def delete_document(
         admin_user_id=current_user.id,
     )
     uploaded = db.scalar(select(UploadedDocument).where(UploadedDocument.id == document_id))
+    
+    from backend.app.services.cache_service import cache_service
+    await cache_service.delete_pattern("cache:documents:*")
+
     if uploaded is not None:
         return _delete_uploaded_document(
             db=db,
@@ -475,16 +487,59 @@ def delete_audit(
 
 
 @router.get("/compliance-rules")
-def list_compliance_rules(
+async def list_compliance_rules(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ) -> list[dict[str, Any]]:
+    from backend.app.services.cache_service import cache_service
+    cache_key = "cache:rules:all"
+    cached = await cache_service.get(cache_key)
+    if cached is not None:
+        return cached
+
     rules = db.scalars(select(ComplianceRule).order_by(ComplianceRule.created_at.desc())).all()
-    return [_compliance_rule_payload(rule) for rule in rules]
+    payload = [_compliance_rule_payload(rule) for rule in rules]
+    await cache_service.set(cache_key, payload, ttl=300)
+    return payload
+
+
+@router.post("/gap-analysis")
+async def gap_analysis(
+    payload: GapAnalysisRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> list[dict[str, Any]]:
+    """Perform a semantic gap analysis for a standard compliance framework."""
+    try:
+        from backend.app.services.gap_analysis_service import gap_analysis_service
+        return await gap_analysis_service.analyze_gap(
+            db=db,
+            framework=payload.framework,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/compliance-rules/generate-from-text")
+def generate_rule_from_text(
+    payload: GenerateRuleFromTextRequest,
+    current_user: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Generate a structured compliance rule draft from plain English."""
+    try:
+        from backend.app.services.rule_generator_service import rule_generator_service
+        return rule_generator_service.generate_rule(description=payload.description)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Failed to generate structured rule: {exc}",
+        )
 
 
 @router.post("/compliance-rules")
-def create_compliance_rule(
+async def create_compliance_rule(
     payload: ComplianceRuleCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -514,11 +569,13 @@ def create_compliance_rule(
         entity_id=rule.id,
         metadata={"category": rule.category},
     )
+    from backend.app.services.cache_service import cache_service
+    await cache_service.delete("cache:rules:all")
     return _compliance_rule_payload(rule)
 
 
 @router.patch("/compliance-rules/{rule_id}")
-def update_compliance_rule(
+async def update_compliance_rule(
     rule_id: str,
     payload: ComplianceRuleUpdate,
     db: Session = Depends(get_db),
@@ -537,6 +594,8 @@ def update_compliance_rule(
     # But if the only change is status="archived" on an already active rule, we just archive the row.
     only_status_archive = len(updates) == 1 and "status" in updates and updates["status"] == "archived"
 
+    from backend.app.services.cache_service import cache_service
+
     if only_status_archive:
         rule.status = "archived"
         db.commit()
@@ -554,6 +613,7 @@ def update_compliance_rule(
             entity_id=rule.id,
             metadata={"status": rule.status},
         )
+        await cache_service.delete("cache:rules:all")
         return _compliance_rule_payload(rule)
 
     # Archive the current rule
@@ -595,6 +655,7 @@ def update_compliance_rule(
         entity_id=new_rule.id,
         metadata={"status": new_rule.status, "version_number": new_rule.version_number, "parent_id": rule.id},
     )
+    await cache_service.delete("cache:rules:all")
     return _compliance_rule_payload(new_rule)
 
 
@@ -623,12 +684,12 @@ def test_compliance_rule(
 
 
 @router.post("/compliance-rules/{rule_id}/archive")
-def archive_compliance_rule(
+async def archive_compliance_rule(
     rule_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ) -> dict[str, Any]:
-    return update_compliance_rule(
+    return await update_compliance_rule(
         rule_id=rule_id,
         payload=ComplianceRuleUpdate(status="archived"),
         db=db,
@@ -637,7 +698,7 @@ def archive_compliance_rule(
 
 
 @router.delete("/compliance-rules/{rule_id}")
-def delete_compliance_rule(
+async def delete_compliance_rule(
     rule_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -655,6 +716,8 @@ def delete_compliance_rule(
         entity_type="compliance_rule",
         entity_id=rule_id,
     )
+    from backend.app.services.cache_service import cache_service
+    await cache_service.delete("cache:rules:all")
     return {"status": "deleted", "id": rule_id}
 
 
@@ -692,10 +755,16 @@ def create_rule_category(
 
 
 @router.get("/analytics")
-def analytics(
+async def analytics(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ) -> dict[str, Any]:
+    from backend.app.services.cache_service import cache_service
+    cache_key = "cache:admin:analytics"
+    cached = await cache_service.get(cache_key)
+    if cached is not None:
+        return cached
+
     users = db.scalar(select(func.count()).select_from(User)) or 0
     uploads = db.scalar(select(func.count()).select_from(UploadedDocument)) or 0
     rule_docs = db.scalar(select(func.count()).select_from(RuleDocument)) or 0
@@ -704,7 +773,7 @@ def analytics(
     failed = db.scalar(select(func.count()).select_from(AuditRun).where(AuditRun.status == "failed")) or 0
     high_risk = db.scalar(select(func.count()).select_from(AuditRun).where(AuditRun.overall_risk == "HIGH")) or 0
     storage, storage_warnings = _safe_s3_storage_summary()
-    return {
+    payload = {
         "users": users,
         "uploaded_documents": uploads,
         "rule_documents": rule_docs,
@@ -715,6 +784,8 @@ def analytics(
         "storage": storage,
         "warnings": storage_warnings,
     }
+    await cache_service.set(cache_key, payload, ttl=30)
+    return payload
 
 
 @router.get("/logs")
@@ -1534,3 +1605,15 @@ def reload_deployment_config(
         "status": "reloading",
         "components_reloaded": ["qdrant_client", "s3_storage_client"]
     }
+
+
+@router.post("/caching/toggle")
+def toggle_caching(
+    enabled: bool,
+    current_user: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Toggle the caching status dynamically."""
+    settings.enable_caching = enabled
+    from backend.app.services.cache_service import cache_service
+    cache_service._redis = None
+    return {"status": "success", "enable_caching": settings.enable_caching}

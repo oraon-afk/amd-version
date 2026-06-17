@@ -4,14 +4,18 @@ import json
 import textwrap
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Response, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from backend.app.auth.auth_dependencies import get_current_user
 from backend.app.db.models.user import User
 from backend.app.db.session import get_db
 from backend.app.schemas.audit import ReportResponse
+from backend.app.schemas.report import CustomReportCreateRequest, CustomReportEditRequest, CustomReportResponse
 from backend.app.services.audit_service import audit_service
+from backend.app.services.reports_service import reports_service
+from backend.app.db.models.ai_features import CustomReport
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -23,6 +27,108 @@ def get_report(
     current_user: User = Depends(get_current_user),
 ) -> ReportResponse:
     return audit_service.get_report(db=db, user=current_user, audit_id=audit_id)
+
+
+@router.post("/{audit_id}/custom", response_model=CustomReportResponse)
+async def generate_custom_report(
+    audit_id: str,
+    payload: CustomReportCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CustomReport:
+    """Generate an audience-specific custom compliance report using LLM narrative rewriting."""
+    try:
+        return await reports_service.generate_custom_report(
+            db=db,
+            user=current_user,
+            audit_id=audit_id,
+            template=payload.template,
+            sections=payload.sections,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate custom report: {exc}",
+        ) from exc
+
+
+@router.get("/custom/{report_id}", response_model=CustomReportResponse)
+def get_custom_report(
+    report_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CustomReport:
+    """Retrieve a previously generated custom compliance report by its ID."""
+    report = db.get(CustomReport, report_id)
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Custom report not found.")
+    
+    # Check authorization to parent audit run
+    audit_service.get_audit(db=db, user=current_user, audit_id=report.audit_id)
+    return report
+
+
+@router.put("/custom/{report_id}", response_model=CustomReportResponse)
+async def update_custom_report(
+    report_id: str,
+    payload: CustomReportEditRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CustomReport:
+    """Update/Edit the contents of a custom report's generated JSON narratives."""
+    try:
+        return await reports_service.update_custom_report(
+            db=db,
+            user=current_user,
+            report_id=report_id,
+            generated_json=payload.generated_json,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update custom report: {exc}",
+        ) from exc
+
+
+@router.get("/custom/{report_id}/download/{export_format}")
+def download_custom_report(
+    report_id: str,
+    export_format: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Export the custom report to PDF or Word DOCX format."""
+    report = db.get(CustomReport, report_id)
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Custom report not found.")
+    
+    # Authorization check
+    audit_service.get_audit(db=db, user=current_user, audit_id=report.audit_id)
+
+    fmt = export_format.lower().strip()
+    if fmt == "pdf":
+        pdf_bytes = reports_service.export_to_pdf(report)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="custom-report-{report_id}.pdf"'},
+        )
+    elif fmt == "docx":
+        docx_bytes = reports_service.export_to_docx(report)
+        return Response(
+            content=docx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f'attachment; filename="custom-report-{report_id}.docx"'},
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported export format. Supported formats: pdf, docx",
+        )
 
 
 @router.get("/{audit_id}/download/json")
@@ -115,3 +221,4 @@ def _simple_pdf(text: str) -> bytes:
 
 def _escape_pdf_text(text: str) -> str:
     return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+

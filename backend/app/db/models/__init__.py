@@ -19,9 +19,19 @@ from backend.app.db.models.log import AuditLog
 from backend.app.db.models.rule import ComplianceRule, RuleDocument
 from backend.app.db.models.user import User
 from backend.app.db.models.webhook import ApiKey, Webhook, WebhookDelivery
+from backend.app.db.models.ai_features import (
+    FindingExplanationCache,
+    RemediationPlan,
+    FrameworkRequirement,
+    CustomReport,
+)
 
 __all__ = [
     "ApiKey",
+    "FindingExplanationCache",
+    "RemediationPlan",
+    "FrameworkRequirement",
+    "CustomReport",
     "AuditLog",
     "AuditReport",
     "AuditResult",

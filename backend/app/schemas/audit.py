@@ -211,6 +211,19 @@ class PublishReportResponse(BaseModel):
     download_urls: dict[str, str]
 
 
+class EvidenceItemSchema(BaseModel):
+    text: str
+    page: int | None = None
+    section: str | None = None
+
+
+class FindingExplanationResponse(BaseModel):
+    finding_id: str
+    explanation_text: str
+    evidence_list: list[EvidenceItemSchema]
+    confidence_score: float
+
+
 def _read_number(payload: dict[str, Any], *keys: str, normalize_percent: bool = False) -> float | None:
     for key in keys:
         value = payload.get(key)

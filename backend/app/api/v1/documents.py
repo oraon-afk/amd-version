@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile, HTTPException
 from sqlalchemy.orm import Session
 
 from backend.app.auth.auth_dependencies import get_current_user
@@ -61,16 +61,30 @@ async def bulk_upload_documents(
 
 
 @router.get("", response_model=list[DocumentResponse])
-def list_documents(
+async def list_documents(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[DocumentResponse]:
-    return document_service.list_documents(db=db, user=current_user)
+    return await document_service.list_documents_cached(db=db, user=current_user)
 
 
 @router.get("/domains", response_model=list[ComplianceDomainResponse])
 def list_domains(db: Session = Depends(get_db)) -> list[ComplianceDomainResponse]:
     return document_service.list_domains(db=db)
+
+
+@router.get("/{document_id}", response_model=DocumentResponse)
+async def get_document(
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DocumentResponse:
+    doc_data = await document_service.get_document_cached(db=db, document_id=document_id)
+    if doc_data is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if current_user.role.upper() not in ("ADMIN", "REVIEWER") and doc_data["user_id"] != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this document")
+    return doc_data
 
 
 @batch_router.get("/{batch_id}", response_model=UploadBatchResponse)

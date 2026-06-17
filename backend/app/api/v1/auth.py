@@ -129,6 +129,6 @@ def _registration_role(*, db: Session, email: str, requested_role: str | None) -
     if email.lower() in settings.default_admin_email_list:
         return "ADMIN"
     normalized = (requested_role or "USER").strip().upper()
-    if normalized in {"ADMIN", "USER"}:
+    if normalized in {"ADMIN", "USER", "REVIEWER"}:
         return normalized
     return "USER"

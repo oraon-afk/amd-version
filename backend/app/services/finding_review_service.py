@@ -59,11 +59,11 @@ class FindingReviewService:
         if finding is None:
             raise ValueError(f"Finding not found: {finding_id}")
 
-        # Enforce ownership: user must own the audit unless admin
+        # Enforce ownership: user must own the audit unless admin or reviewer
         audit = db.scalar(select(AuditRun).where(AuditRun.id == finding.audit_id))
         if audit is None:
             raise ValueError("Audit not found for finding.")
-        if user.role != "ADMIN" and audit.user_id != user.id:
+        if user.role.upper() not in {"ADMIN", "REVIEWER"} and audit.user_id != user.id:
             raise PermissionError("You do not have permission to review this finding.")
 
         if not finding.needs_review:
@@ -144,7 +144,7 @@ class FindingReviewService:
         if audit is None:
             raise ValueError(f"Audit not found: {audit_id}")
 
-        if user.role != "ADMIN" and audit.user_id != user.id:
+        if user.role.upper() == "REVIEWER" or (user.role.upper() != "ADMIN" and audit.user_id != user.id):
             raise PermissionError("You do not have permission to publish this report.")
 
         if audit.status not in {"pending_review", "completed"}:
@@ -214,7 +214,7 @@ class FindingReviewService:
         audit = db.scalar(select(AuditRun).where(AuditRun.id == audit_id))
         if audit is None:
             raise ValueError(f"Audit not found: {audit_id}")
-        if user.role != "ADMIN" and audit.user_id != user.id:
+        if user.role.upper() not in {"ADMIN", "REVIEWER"} and audit.user_id != user.id:
             raise PermissionError("Access denied.")
 
         return list(
@@ -229,7 +229,7 @@ class FindingReviewService:
     # ──────────────────────────── internals ──────────────────────────────────
 
     def _maybe_advance_audit(self, *, db: Session, audit: AuditRun, user: User) -> None:
-        """If no pending reviews remain, the audit stays in pending_review but is flagged as ready."""
+        """If no pending reviews remain, the audit status automatically updates to completed."""
         if audit.status != "pending_review":
             return
         remaining = db.scalar(
@@ -240,8 +240,30 @@ class FindingReviewService:
             )
         )
         if remaining is None:
-            # All reviews done — log readiness (user still must click Publish)
-            logger.info("All required reviews complete for audit %s — ready to publish.", audit.id)
+            # Fetch the latest report to rebuild payload
+            report = db.scalar(
+                select(AuditReport).where(AuditReport.audit_id == audit.id).order_by(AuditReport.created_at.desc())
+            )
+            if report is not None:
+                self._rebuild_report_payload(db=db, audit_id=audit.id, report=report)
+
+            # Mark audit as completed
+            audit.status = "completed"
+            if audit.completed_at is None:
+                audit.completed_at = datetime.utcnow()
+            
+            commit_or_rollback(db)
+
+            audit_log_service.log(
+                db=db,
+                action="report.published.auto",
+                user=user,
+                entity_type="audit_run",
+                entity_id=audit.id,
+                metadata={"audit_id": audit.id},
+            )
+
+            logger.info("All required reviews complete for audit %s — automatically updated status to completed.", audit.id)
 
     def _rebuild_report_payload(
         self,

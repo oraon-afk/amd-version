@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     debug: bool = False
     deployment_mode: str = "cloud"  # "cloud" | "hybrid" | "onprem"
     ollama_url: str | None = None
+    redis_url: str = "redis://localhost:6379/0"
+    enable_caching: bool = True
     ollama_model: str | None = None
     minio_endpoint: str | None = None
     local_qdrant_url: str | None = None

@@ -3,10 +3,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useParams, usePathname, useRouter } from "next/navigation";
+import Link from "next/link";
 import { ReviewWorkflowBadge } from "@/components/dashboard/ReviewWorkflowBadge";
 import { FindingsReviewPanel } from "@/components/dashboard/FindingsReviewPanel";
 import { ReviewHistoryDrawer } from "@/components/dashboard/ReviewHistoryDrawer";
 import { DiagnosticsDrawer } from "@/components/dashboard/DiagnosticsDrawer";
+import { FindingExplanationDrawer } from "@/components/dashboard/FindingExplanationDrawer";
+import { RemediationPlanViewer } from "@/components/dashboard/RemediationPlanViewer";
 import { publishReport } from "@/services/audits/audit-service";
 import {
   AlertCircle,
@@ -24,6 +27,7 @@ import {
   type LucideIcon,
   ShieldAlert,
   ShieldCheck,
+  Sparkles,
   Target,
 } from "lucide-react";
 import { EmptyState } from "@/components/dashboard/EmptyState";
@@ -147,6 +151,7 @@ export default function ReportDetailPage() {
   const recommendations = getRecommendations(report, findingViews);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
+  const [explainingFindingId, setExplainingFindingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"overview" | "review">("overview");
 
   const publishMutation = useMutation({
@@ -264,6 +269,13 @@ export default function ReportDetailPage() {
                 Show Diagnostics
               </Button>
             )}
+            {report && isAdminPath && (
+              <Link href={`/admin/reports/${auditId}/custom-builder`}>
+                <Button variant="secondary" className="border-cyan/35 text-cyan hover:bg-cyan/10">
+                  <Sparkles className="h-4 w-4 mr-1 text-warning" /> AI Custom Report
+                </Button>
+              </Link>
+            )}
             {findings.some((f) => f.reviewed_at) && (
               <Button onClick={() => setIsHistoryOpen(true)} variant="secondary">
                 Review History
@@ -274,7 +286,7 @@ export default function ReportDetailPage() {
                 <Button
                   onClick={() => publishMutation.mutate()}
                   disabled={publishMutation.isPending}
-                  variant="primary"
+                  variant="default"
                   className="bg-brand hover:bg-brand/90 text-white"
                 >
                   Publish Report
@@ -375,7 +387,11 @@ export default function ReportDetailPage() {
                 <RiskBreakdown riskCounts={riskCounts} />
               </section>
 
-              <EnterpriseFindingsSection findings={findingViews} onCopy={(view) => copyFindingBrief(view, toast)} />
+              <EnterpriseFindingsSection
+                findings={findingViews}
+                onCopy={(view) => copyFindingBrief(view, toast)}
+                onExplain={(view) => setExplainingFindingId(view.id)}
+              />
 
               <EvidenceCards evidenceCards={buildEvidenceCards(findingViews)} onCopy={(card) => copyEvidenceCard(card, toast)} />
 
@@ -394,6 +410,11 @@ export default function ReportDetailPage() {
         auditId={auditId}
         isOpen={isDiagnosticsOpen}
         onClose={() => setIsDiagnosticsOpen(false)}
+      />
+      <FindingExplanationDrawer
+        findingId={explainingFindingId}
+        isOpen={explainingFindingId !== null}
+        onClose={() => setExplainingFindingId(null)}
       />
     </div>
   );
@@ -634,7 +655,15 @@ function RiskBreakdown({ riskCounts }: { riskCounts: RiskCounts }) {
   );
 }
 
-function EnterpriseFindingsSection({ findings, onCopy }: { findings: FindingView[]; onCopy: (finding: FindingView) => void }) {
+function EnterpriseFindingsSection({
+  findings,
+  onCopy,
+  onExplain,
+}: {
+  findings: FindingView[];
+  onCopy: (finding: FindingView) => void;
+  onExplain: (finding: FindingView) => void;
+}) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3">
@@ -646,14 +675,27 @@ function EnterpriseFindingsSection({ findings, onCopy }: { findings: FindingView
           <EmptyState icon={ShieldCheck} title="No findings returned" copy="The backend report and findings API did not return violations for this assessment." />
         )}
         {findings.map((finding) => (
-          <FindingCard key={finding.id} finding={finding} onCopy={() => onCopy(finding)} />
+          <FindingCard
+            key={finding.id}
+            finding={finding}
+            onCopy={() => onCopy(finding)}
+            onExplain={() => onExplain(finding)}
+          />
         ))}
       </CardContent>
     </Card>
   );
 }
 
-function FindingCard({ finding, onCopy }: { finding: FindingView; onCopy: () => void }) {
+function FindingCard({
+  finding,
+  onCopy,
+  onExplain,
+}: {
+  finding: FindingView;
+  onCopy: () => void;
+  onExplain: () => void;
+}) {
   return (
     <article className="rounded-lg border border-line bg-white/5 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -680,12 +722,18 @@ function FindingCard({ finding, onCopy }: { finding: FindingView; onCopy: () => 
           <div className="font-semibold">Finding Brief</div>
           <div className="text-xs text-muted">Copy the evidence-backed finding for remediation work.</div>
         </div>
-        <Button type="button" size="sm" variant="secondary" onClick={onCopy}>
-          <Copy className="h-4 w-4" /> Copy
-        </Button>
+        <div className="flex gap-2">
+          <Button type="button" size="sm" variant="secondary" onClick={onExplain}>
+            <Sparkles className="h-4 w-4 mr-1 text-warning" /> Explain
+          </Button>
+          <Button type="button" size="sm" variant="secondary" onClick={onCopy}>
+            <Copy className="h-4 w-4" /> Copy
+          </Button>
+        </div>
       </div>
 
       <EvidenceViewer finding={finding} />
+      <RemediationPlanViewer findingId={finding.id} />
     </article>
   );
 }

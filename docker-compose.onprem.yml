@@ -64,6 +64,20 @@ services:
     # Ollama requires model preload via setup or command:
     # docker exec amd-compliance-ollama ollama run llama2
 
+  redis:
+    image: redis:7-alpine
+    container_name: amd-compliance-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: ./backend
@@ -85,12 +99,15 @@ services:
       - OLLAMA_URL=http://ollama:11434/v1
       - OLLAMA_MODEL=llama2
       - DEPLOYMENT_MODE=onprem
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
       qdrant:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   frontend:
@@ -111,3 +128,4 @@ volumes:
   qdrant_data:
   minio_data:
   ollama_data:
+  redis_data:

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from time import sleep, time
-from typing import Any
+from typing import Any, Iterable
 from uuid import uuid4
 
 from json_repair import repair_json
@@ -82,6 +82,7 @@ class LLMService:
         document_id: str | None = None,
         domain: str | None = None,
         metadata: dict[str, Any] | None = None,
+        required_keys: Iterable[str] | None = None,
     ) -> dict[str, Any]:
         started = time()
         effective_max_tokens = max(
@@ -211,6 +212,7 @@ class LLMService:
                     document_id=document_id,
                     domain=domain,
                     repair_enabled=allow_repair,
+                    required_keys=required_keys,
                 )
                 log_pipeline_stage(
                     logger,
@@ -319,6 +321,7 @@ def parse_json_response(
     document_id: str | None = None,
     domain: str | None = None,
     repair_enabled: bool | None = None,
+    required_keys: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     started = time()
     cleaned = clean_json_response(content)
@@ -332,6 +335,7 @@ def parse_json_response(
         if isinstance(fast_payload, dict):
             validate_json_payload(
                 fast_payload,
+                required_keys=required_keys,
                 audit_id=audit_id,
                 document_id=document_id,
                 domain=domain,
@@ -494,6 +498,7 @@ def parse_json_response(
         raise LLMResponseValidationError("LLM JSON output must be an object.")
     validate_json_payload(
         payload,
+        required_keys=required_keys,
         audit_id=audit_id,
         document_id=document_id,
         domain=domain,
@@ -541,6 +546,7 @@ def clean_json_response(content: str) -> str:
 def validate_json_payload(
     payload: dict[str, Any],
     *,
+    required_keys: Iterable[str] | None = None,
     audit_id: str | None,
     document_id: str | None,
     domain: str | None,
@@ -553,13 +559,14 @@ def validate_json_payload(
     cleaned_content: str = "",
     repaired_content: str = "",
 ) -> None:
-    missing = sorted(key for key in _REQUIRED_RESPONSE_KEYS if key not in payload)
+    target_keys = frozenset(required_keys) if required_keys is not None else _REQUIRED_RESPONSE_KEYS
+    missing = sorted(key for key in target_keys if key not in payload)
     invalid: list[str] = []
-    if "summary" in payload and not str(payload.get("summary") or "").strip():
+    if "summary" in target_keys and "summary" in payload and not str(payload.get("summary") or "").strip():
         invalid.append("summary")
-    if "findings" in payload and not isinstance(payload.get("findings"), list):
+    if "findings" in target_keys and "findings" in payload and not isinstance(payload.get("findings"), list):
         invalid.append("findings")
-    if "compliance_score" in payload:
+    if "compliance_score" in target_keys and "compliance_score" in payload:
         try:
             score = float(payload.get("compliance_score"))
         except (TypeError, ValueError):

@@ -4,7 +4,7 @@ import { AdminShell } from "@/components/layout/AdminShell";
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   return (
-    <ProtectedRoute roles={["ADMIN"]}>
+    <ProtectedRoute roles={["ADMIN", "REVIEWER"]}>
       <AdminShell>{children}</AdminShell>
     </ProtectedRoute>
   );

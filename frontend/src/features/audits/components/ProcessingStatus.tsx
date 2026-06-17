@@ -28,6 +28,7 @@ export function ProcessingStatus({
     "reranking",
     "analyzing",
     "generating_report",
+    "pending_review",
     "completed",
     "failed",
   ];
@@ -153,7 +154,10 @@ function statusText({
 }) {
   if (failed && label === "failed") return "Failed";
   if (done) return "Done";
-  if (active) return "Running";
+  if (active) {
+    if (label === "pending_review") return "Awaiting Review";
+    return "Running";
+  }
   return "Waiting";
 }
 
@@ -172,6 +176,7 @@ function stageRank(stage: WorkflowStage) {
   if (stage === "reranking") return 6;
   if (stage === "analyzing") return 7;
   if (stage === "generating_report") return 8;
-  if (stage === "completed") return 9;
+  if (stage === "pending_review") return 9;
+  if (stage === "completed") return 10;
   return 0;
 }

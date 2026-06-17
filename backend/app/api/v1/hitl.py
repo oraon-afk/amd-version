@@ -21,9 +21,16 @@ from backend.app.schemas.audit import (
     FindingReviewResponse,
     FullDiagnosticsResponse,
     PublishReportResponse,
+    FindingExplanationResponse,
+)
+from backend.app.schemas.remediation import (
+    RemediationPlanResponse,
+    RemediationPlanUpdateRequest,
 )
 from backend.app.services.audit_service import audit_service
 from backend.app.services.finding_review_service import finding_review_service
+from backend.app.services.finding_explanation_service import finding_explanation_service
+from backend.app.services.remediation_service import remediation_service
 
 router = APIRouter(tags=["hitl"])
 
@@ -59,6 +66,28 @@ def review_finding(
         reviewed_at=finding.reviewed_at,
         previous_state=finding.original_finding_snapshot,
     )
+
+
+@router.get("/findings/{finding_id}/explanation", response_model=FindingExplanationResponse)
+async def get_finding_explanation(
+    finding_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> FindingExplanationResponse:
+    """Retrieve or generate a natural language explanation of why a finding was flagged."""
+    try:
+        explanation = await finding_explanation_service.get_explanation(
+            db=db,
+            user=current_user,
+            finding_id=finding_id,
+        )
+        return FindingExplanationResponse(**explanation)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post("/reports/{audit_id}/publish", response_model=PublishReportResponse)
@@ -127,3 +156,81 @@ def get_full_diagnostics(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return FullDiagnosticsResponse.model_validate(diagnostic)
+
+
+# ─────────────────────────── Feature 2.2: Remediation Plans ──────────────────
+
+@router.get("/findings/{finding_id}/remediation-plan", response_model=RemediationPlanResponse)
+async def get_remediation_plan(
+    finding_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RemediationPlanResponse:
+    """Get the remediation plan for a finding. Auto-generates if missing."""
+    try:
+        plan = await remediation_service.get_remediation_plan(
+            db=db,
+            user=current_user,
+            finding_id=finding_id,
+        )
+        if plan is None:
+            # Auto-generate if missing to provide a smooth user experience
+            plan = await remediation_service.generate_remediation_plan(
+                db=db,
+                user=current_user,
+                finding_id=finding_id,
+            )
+        return plan
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/findings/{finding_id}/remediation-plan", response_model=RemediationPlanResponse)
+async def generate_remediation_plan(
+    finding_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RemediationPlanResponse:
+    """Force generate a new remediation plan using AI."""
+    try:
+        plan = await remediation_service.generate_remediation_plan(
+            db=db,
+            user=current_user,
+            finding_id=finding_id,
+        )
+        return plan
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.put("/findings/{finding_id}/remediation-plan", response_model=RemediationPlanResponse)
+async def update_remediation_plan(
+    finding_id: str,
+    payload: RemediationPlanUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RemediationPlanResponse:
+    """Update or approve the remediation plan (Admin/Reviewer only)."""
+    try:
+        plan = await remediation_service.update_remediation_plan(
+            db=db,
+            user=current_user,
+            finding_id=finding_id,
+            payload=payload,
+        )
+        return plan
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+

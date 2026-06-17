@@ -22,3 +22,5 @@ pdfplumber
 pypdf
 python-docx
 sentence-transformers
+redis
+
